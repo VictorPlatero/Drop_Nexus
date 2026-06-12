@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: #0A0A0A; color: #E5E7EB; }
+button, input, select, textarea { font: inherit; }
+button { transition: background-color 150ms, border-color 150ms, color 150ms, opacity 150ms; }
+button:disabled { cursor: not-allowed; opacity: .5; }
+input, select, textarea {
+  width: 100%; border: 1px solid #2A2A2A; background: #0D0D0D; color: #F3F4F6;
+  border-radius: 8px; padding: 10px 12px; outline: none;
+}
+input:focus, select:focus, textarea:focus { border-color: #3B82F6; box-shadow: 0 0 0 2px rgba(59,130,246,.15); }
+label { display: block; margin-bottom: 6px; color: #A1A1AA; font-size: 13px; font-weight: 500; }
+.card { border: 1px solid #222222; background: #111111; border-radius: 12px; padding: 24px; }
+.btn-primary { border-radius: 8px; background: #3B82F6; color: white; padding: 10px 16px; font-weight: 600; }
+.btn-primary:hover { background: #2563EB; }
+.btn-secondary { border: 1px solid #2A2A2A; border-radius: 8px; background: #151515; color: #E5E7EB; padding: 9px 15px; font-weight: 500; }
+.btn-secondary:hover { background: #1E1E1E; }
+.btn-danger { border: 1px solid #7F1D1D; border-radius: 8px; background: #1F1010; color: #FCA5A5; padding: 9px 15px; font-weight: 500; }
+.table-shell { overflow-x: auto; border: 1px solid #222; border-radius: 12px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { background: #151515; color: #A1A1AA; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+th, td { padding: 13px 16px; border-bottom: 1px solid #222; }
+tr:last-child td { border-bottom: 0; }

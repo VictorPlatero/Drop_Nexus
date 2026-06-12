@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: database-nexus
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: npm run install:all && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/status
+    autoDeploy: true
+    disk:
+      name: database-files
+      mountPath: /var/data/databases
+      sizeGB: 5
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: DATABASE_UPLOAD_DIR
+        value: /var/data/databases
+      - key: ADMIN_EMAIL
+        value: victorplateromaron58@gmail.com
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_NAME
+        value: Victor Platero
