@@ -23,7 +23,11 @@ export interface FileCatalog {
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 
 export function catalogRoot(): string {
-  return path.resolve(process.env.DATABASE_UPLOAD_DIR ?? process.env.SQLITE_UPLOAD_DIR ?? path.join(process.cwd(), "storage", "databases"));
+  return path.resolve(
+    process.env.DATABASE_UPLOAD_DIR
+      ?? process.env.SQLITE_UPLOAD_DIR
+      ?? (process.env.NODE_ENV === "production" ? "/var/data/databases" : path.join(process.cwd(), "storage", "databases"))
+  );
 }
 
 function userDirectory(userId: string): string {
