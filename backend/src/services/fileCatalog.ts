@@ -1,5 +1,6 @@
 import { createWriteStream } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { randomUUID } from "node:crypto";
@@ -23,19 +24,36 @@ export interface FileCatalog {
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 
 export function catalogRoot(): string {
-  return path.resolve(
-    process.env.DATABASE_UPLOAD_DIR
-      ?? process.env.SQLITE_UPLOAD_DIR
-      ?? (process.env.NODE_ENV === "production" ? "/var/data/databases" : path.join(process.cwd(), "storage", "databases"))
-  );
+  return catalogRootCandidates()[0]!;
 }
 
-function userDirectory(userId: string): string {
-  return path.join(catalogRoot(), String(userId));
+function catalogRootCandidates(): string[] {
+  return [
+    process.env.DATABASE_UPLOAD_DIR,
+    process.env.SQLITE_UPLOAD_DIR,
+    process.env.NODE_ENV === "production" ? "/var/data/databases" : undefined,
+    path.join(process.cwd(), "storage", "databases"),
+    path.join(os.tmpdir(), "drop-nexus", "databases")
+  ].filter((value): value is string => Boolean(value)).map((value) => path.resolve(value));
+}
+
+async function writableUserDirectory(userId: string): Promise<string> {
+  const errors: string[] = [];
+  for (const root of catalogRootCandidates()) {
+    const directory = path.join(root, String(userId));
+    try {
+      await mkdir(directory, { recursive: true });
+      return directory;
+    } catch (error) {
+      errors.push(`${root}: ${error instanceof Error ? error.message : "no escribible"}`);
+    }
+  }
+  throw new Error(`No hay un directorio escribible para almacenar bases importadas. ${errors.join(" | ")}`);
 }
 
 export function isOwnedCatalogPath(filePath: string, userId: string): boolean {
-  return path.resolve(filePath).startsWith(`${path.resolve(userDirectory(userId))}${path.sep}`);
+  const resolved = path.resolve(filePath);
+  return catalogRootCandidates().some((root) => resolved.startsWith(`${path.join(root, String(userId))}${path.sep}`));
 }
 
 function extensionsFor(engine: DbEngine): string[] {
@@ -49,8 +67,7 @@ export async function importDatabaseFile(file: MultipartFile, userId: string, en
   if (!extensionsFor(engine).includes(extension)) {
     throw new Error(`Formato no válido para ${engine}. Usa ${extensionsFor(engine).join(", ")}`);
   }
-  const directory = userDirectory(userId);
-  await mkdir(directory, { recursive: true });
+  const directory = await writableUserDirectory(userId);
   const rawPath = path.join(directory, `${randomUUID()}${extension}`);
   const catalogPath = path.join(directory, `${randomUUID()}.catalog.json`);
   let size = 0;
