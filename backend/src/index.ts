@@ -18,6 +18,7 @@ import { configurationRoutes } from "./routes/configurations.js";
 import { replicationRoutes } from "./routes/replication.js";
 import { healthRoutes } from "./routes/health.js";
 import { schemaRoutes } from "./routes/schema.js";
+import { cleanupExpiredConfigurations, startExpirationCleanup } from "./services/expirationService.js";
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
 const jwtSecret = process.env.JWT_SECRET;
@@ -61,6 +62,8 @@ app.setErrorHandler((error, request, reply) => {
 
 await initializeDatabase();
 await seedAdmin();
+await cleanupExpiredConfigurations();
+startExpirationCleanup();
 
 const port = Number(process.env.PORT ?? 3000);
 await app.listen({ host: "0.0.0.0", port });

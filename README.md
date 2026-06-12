@@ -1,5 +1,7 @@
 # Database Nexus
 
+Cada usuario dispone de un espacio aislado. Las bases importadas y sus configuraciones se conservan durante 24 horas y luego se eliminan automáticamente.
+
 SaaS multi-tenant para configurar, supervisar y ejecutar replicaciones por lotes entre PostgreSQL, MySQL, MariaDB, SQL Server, SQLite y MongoDB.
 
 ## Requisitos

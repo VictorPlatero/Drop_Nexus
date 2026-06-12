@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CheckCircle2, Database, Edit3, Plus, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, Clock3, Database, Edit3, Plus, Trash2, XCircle } from "lucide-react";
 import { api, type DbConfiguration, uploadDatabase } from "../services/api";
 import ConfigurationForm, { type ConfigurationPayload } from "./ConfigurationForm";
 
@@ -120,6 +120,10 @@ export default function ConfigurationsList({
             <div className="mt-1 text-zinc-300">{Number(config.options?.tableCount ?? 0)}</div>
           </div>
         </div>
+        <div className="mt-4 flex items-center gap-2 rounded-button border border-line bg-[#0D0D0D] px-3 py-2 text-xs text-zinc-500">
+          <Clock3 size={14} />
+          Disponible por {remainingTime(config.expiresAt)}
+        </div>
         <div className="mt-6 flex gap-2">
           <button className="btn-secondary flex-1" disabled={testing === config.id} onClick={() => test(config.id)}>
             {testing === config.id ? "Verificando..." : "Verificar archivo"}
@@ -130,4 +134,11 @@ export default function ConfigurationsList({
       </article>)}
     </div>}
   </div>;
+}
+
+function remainingTime(expiresAt: string): string {
+  const remaining = Math.max(0, new Date(expiresAt).getTime() - Date.now());
+  const hours = Math.floor(remaining / 3_600_000);
+  const minutes = Math.max(1, Math.ceil((remaining % 3_600_000) / 60_000));
+  return hours > 0 ? `${hours} h ${minutes} min` : `${minutes} min`;
 }

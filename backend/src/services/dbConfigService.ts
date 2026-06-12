@@ -44,7 +44,8 @@ function mapConfig(row: Record<string, unknown>, includePassword = true): DbConf
     password: includePassword ? decrypt(row.encrypted_password as string | null) : undefined,
     options: includePassword ? decryptOptions(row.options) : { ...((row.options ?? {}) as Record<string, unknown>), connectionStringEncrypted: undefined },
     createdAt: new Date(row.created_at as string).toISOString(),
-    updatedAt: new Date(row.updated_at as string).toISOString()
+    updatedAt: new Date(row.updated_at as string).toISOString(),
+    expiresAt: new Date(row.expires_at as string).toISOString()
   };
 }
 
@@ -63,22 +64,31 @@ export function publicConfig(config: DbConfiguration) {
 }
 
 export async function listConfigurations(userId: string, includePasswords = false): Promise<DbConfiguration[]> {
-  const rows = (await pool.query("SELECT * FROM db_configurations WHERE user_id=$1 ORDER BY created_at DESC", [userId])).rows;
+  const rows = (await pool.query(
+    "SELECT * FROM db_configurations WHERE user_id=$1 AND expires_at > now() ORDER BY created_at DESC",
+    [userId]
+  )).rows;
   return rows.map((row) => mapConfig(row, includePasswords));
 }
 
 export async function getConfiguration(id: string, userId?: string): Promise<DbConfiguration | null> {
   const values = userId ? [id, userId] : [id];
-  const result = await pool.query(`SELECT * FROM db_configurations WHERE id=$1${userId ? " AND user_id=$2" : ""}`, values);
+  const result = await pool.query(
+    `SELECT * FROM db_configurations WHERE id=$1${userId ? " AND user_id=$2" : ""} AND expires_at > now()`,
+    values
+  );
   return result.rows[0] ? mapConfig(result.rows[0], true) : null;
 }
 
 export async function createConfiguration(userId: string, input: ConfigInput): Promise<DbConfiguration> {
-  const count = await pool.query("SELECT COUNT(*)::int count FROM db_configurations WHERE user_id=$1", [userId]);
+  const count = await pool.query(
+    "SELECT COUNT(*)::int count FROM db_configurations WHERE user_id=$1 AND expires_at > now()",
+    [userId]
+  );
   if (count.rows[0].count >= 10) throw new Error("Límite de 10 configuraciones alcanzado");
   const result = await pool.query(
-    `INSERT INTO db_configurations (user_id,name,engine,host,port,database_name,username,encrypted_password,options)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+    `INSERT INTO db_configurations (user_id,name,engine,host,port,database_name,username,encrypted_password,options,expires_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now()+interval '24 hours') RETURNING *`,
     [userId, input.name.trim(), input.engine, input.host || null, input.port || null, input.database || null, input.username || null, input.password ? encrypt(input.password) : null, encryptOptions(input.options)]
   );
   return mapConfig(result.rows[0]);
