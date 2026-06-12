@@ -14,7 +14,7 @@ services:
       sizeGB: 5
     envVars:
       - key: NODE_VERSION
-        value: "22"
+        value: "22.14.0"
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
