@@ -12,7 +12,8 @@ export class SQLServerAdapter implements DatabaseAdapter {
     this.pool = await new sql.ConnectionPool({
       server: this.config.host ?? "localhost", port: this.config.port ?? 1433,
       database: this.config.database, user: this.config.username, password: this.config.password,
-      connectionTimeout: 5000, requestTimeout: 5000,
+      connectionTimeout: Number(this.config.options?.connectionTimeoutMs ?? 5000),
+      requestTimeout: Number(this.config.options?.requestTimeoutMs ?? 5000),
       options: { encrypt: Boolean(this.config.options?.encrypt), trustServerCertificate: Boolean(this.config.options?.trustServerCertificate) },
       pool: { max: 3, min: 0, idleTimeoutMillis: 30000 }
     }).connect();

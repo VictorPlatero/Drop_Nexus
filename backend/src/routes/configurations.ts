@@ -16,6 +16,7 @@ import {
   isOwnedCatalogPath,
   removeOwnedCatalog
 } from "../services/fileCatalog.js";
+import { maxDatabaseFileSizeBytes } from "../utils/uploadLimits.js";
 
 const configSchema = z.object({
   name: z.string().trim().min(2).max(100),
@@ -34,7 +35,7 @@ export async function configurationRoutes(app: FastifyInstance): Promise<void> {
   app.post("/database-upload/:engine", guards, async (request, reply) => {
     const engineResult = z.enum(DB_ENGINES).safeParse((request.params as { engine: string }).engine);
     if (!engineResult.success) return reply.code(400).send({ message: "Modelo de base de datos no válido" });
-    const file = await request.file({ limits: { files: 1, fileSize: 100 * 1024 * 1024 } });
+    const file = await request.file({ limits: { files: 1, fileSize: maxDatabaseFileSizeBytes() } });
     if (!file) return reply.code(400).send({ message: "Selecciona un archivo de base de datos" });
     try {
       const imported = await importDatabaseFile(file, request.user.id, engineResult.data);

@@ -15,7 +15,7 @@ const formats: Record<string, { accept: string; label: string }> = {
   postgresql: { accept: ".sql,text/plain", label: "Exportación SQL de PostgreSQL (.sql)" },
   mysql: { accept: ".sql,text/plain", label: "Exportación SQL de MySQL (.sql)" },
   mariadb: { accept: ".sql,text/plain", label: "Exportación SQL de MariaDB (.sql)" },
-  sqlserver: { accept: ".sql,text/plain", label: "Script SQL de SQL Server (.sql)" },
+  sqlserver: { accept: ".sql,.bak,text/plain,application/octet-stream", label: "SQL Server (.sql o respaldo .bak)" },
   oracle: { accept: ".sql,text/plain", label: "Script SQL de Oracle (.sql)" },
   sqlite: { accept: ".db,.sqlite,.sqlite3,application/vnd.sqlite3", label: "Base SQLite (.db, .sqlite, .sqlite3)" },
   mongodb: { accept: ".json,.ndjson,application/json", label: "Exportación MongoDB (.json, .ndjson)" }
@@ -27,7 +27,7 @@ const empty: ConfigurationPayload = {
   options: {}
 };
 
-const allSupportedFormats = ".sql,.db,.sqlite,.sqlite3,.json,.ndjson,text/plain,application/json,application/vnd.sqlite3";
+const allSupportedFormats = ".sql,.bak,.db,.sqlite,.sqlite3,.json,.ndjson,text/plain,application/json,application/octet-stream,application/vnd.sqlite3";
 
 export default function ConfigurationForm({
   editing,
@@ -119,7 +119,7 @@ export default function ConfigurationForm({
               setForm({
                 ...form,
                 engine: detected.engine ?? form.engine,
-                name: form.name || file.name.replace(/\.(sql|db|sqlite|sqlite3|json|ndjson)$/i, ""),
+                name: form.name || file.name.replace(/\.(sql|bak|db|sqlite|sqlite3|json|ndjson)$/i, ""),
                 databaseFile: file
               });
             } finally {
@@ -167,7 +167,7 @@ export default function ConfigurationForm({
       >
         <Upload className="mb-3 text-blue-400" size={26} />
         <span className="text-sm font-medium text-zinc-200">Seleccionar archivo desde la PC</span>
-        <span className="mt-2 text-xs text-zinc-500">{currentFormat.label} · Máximo 100 MB</span>
+        <span className="mt-2 text-xs text-zinc-500">{currentFormat.label} · Máximo 500 MB</span>
       </button>}
 
       {form.databaseFile && <button type="button" className="btn-secondary mt-3 flex items-center gap-2" onClick={() => fileInput.current?.click()}>

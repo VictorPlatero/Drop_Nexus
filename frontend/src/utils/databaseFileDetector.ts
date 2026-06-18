@@ -11,6 +11,10 @@ const SQLITE_HEADER = "SQLite format 3\u0000";
 export async function detectDatabaseEngine(file: File): Promise<DetectionResult> {
   const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
 
+  if (extension === "bak") {
+    return { engine: "sqlserver", confidence: "high", reason: "Respaldo binario de SQL Server (.bak)" };
+  }
+
   if (["db", "sqlite", "sqlite3"].includes(extension)) {
     const header = new TextDecoder().decode(await file.slice(0, 16).arrayBuffer());
     return header === SQLITE_HEADER

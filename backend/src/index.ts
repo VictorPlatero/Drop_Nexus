@@ -14,6 +14,7 @@ import { registerRateLimit } from "./middleware/rateLimit.js";
 import { authRoutes } from "./routes/auth.js";
 import { userRoutes } from "./routes/users.js";
 import { adminRoutes } from "./routes/admin.js";
+import { maxDatabaseFileSizeBytes } from "./utils/uploadLimits.js";
 import { configurationRoutes } from "./routes/configurations.js";
 import { replicationRoutes } from "./routes/replication.js";
 import { healthRoutes } from "./routes/health.js";
@@ -31,7 +32,7 @@ await app.register(cors, {
 });
 await app.register(jwt, { secret: jwtSecret, sign: { expiresIn: "7d" } });
 await app.register(multipart, {
-  limits: { files: 1, fileSize: 100 * 1024 * 1024 }
+  limits: { files: 1, fileSize: maxDatabaseFileSizeBytes() }
 });
 await registerRateLimit(app);
 

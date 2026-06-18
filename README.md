@@ -42,6 +42,16 @@ El backend inicializa de forma idempotente las columnas e índices requeridos y 
 | `ADMIN_EMAIL` | No | Email del admin inicial |
 | `ADMIN_PASSWORD` | No | Contraseña del admin inicial |
 | `ADMIN_NAME` | No | Nombre del admin inicial |
+| `SQLSERVER_RESTORE_HOST` | Para `.bak` | Servidor SQL Server temporal con permisos `RESTORE DATABASE` |
+| `SQLSERVER_RESTORE_PORT` | No | Puerto del servidor de restauración, por defecto `1433` |
+| `SQLSERVER_RESTORE_USER` | Para `.bak` | Usuario SQL Server de restauración |
+| `SQLSERVER_RESTORE_PASSWORD` | Para `.bak` | Contraseña del usuario de restauración |
+| `SQLSERVER_BACKUP_DIR` | Para `.bak` | Carpeta compartida, escribible por la app y visible con la misma ruta para SQL Server |
+| `SQLSERVER_DATA_DIR` | Para `.bak` | Carpeta donde SQL Server puede crear los archivos temporales restaurados |
+| `SQLSERVER_RESTORE_ENCRYPT` | No | Usa `true` si la conexión de restauración requiere cifrado |
+| `SQLSERVER_RESTORE_TRUST_CERT` | No | Confía en el certificado; por defecto `true` |
+| `SQLSERVER_RESTORE_TIMEOUT_MS` | No | Tiempo máximo de restauración; por defecto 300000 ms |
+| `MAX_DATABASE_FILE_SIZE_MB` | No | Tamaño máximo por archivo; por defecto 500 MB |
 
 ## Compilación
 
@@ -63,7 +73,9 @@ En producción Fastify sirve `frontend/dist` y las APIs bajo `/api`.
 
 - JWT de 7 días y rate limit de 100 solicitudes/minuto/IP.
 - Contraseñas externas cifradas con AES-256-GCM y nunca devueltas al cliente.
-- Archivos SQLite validados, limitados a 100 MB y almacenados de forma aislada por usuario.
+- Archivos SQLite validados, almacenados de forma aislada por usuario y sujetos al límite de carga configurable.
+- Scripts SQL Server compatibles con separadores `GO`, identificadores `[schema].[tabla]` e `INSERT` con o sin `INTO`.
+- Respaldos SQL Server `.bak` restaurados temporalmente cuando se configura un servidor y una carpeta compartida.
 - Consultas de valores parametrizadas e identificadores escapados por motor.
 - Aislamiento de configuraciones por `user_id`; el admin solo obtiene una vista sin credenciales.
 - Timeout de conexión de 5 segundos, máximo 10 configuraciones por usuario y lotes de 5000 filas.
