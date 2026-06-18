@@ -124,6 +124,10 @@ export async function initializeDatabase(): Promise<void> {
     ALTER TABLE replications ADD COLUMN IF NOT EXISTS completed_at timestamptz;
     ALTER TABLE replications ADD COLUMN IF NOT EXISTS next_run_at timestamptz;
     ALTER TABLE replications ADD COLUMN IF NOT EXISTS error_details jsonb DEFAULT '[]'::jsonb;
+    ALTER TABLE replications ADD COLUMN IF NOT EXISTS failure_stage text;
+    ALTER TABLE replications ADD COLUMN IF NOT EXISTS failure_code text;
+    ALTER TABLE replications ADD COLUMN IF NOT EXISTS failure_cause text;
+    ALTER TABLE replications ADD COLUMN IF NOT EXISTS recommendation text;
     DO $$
     DECLARE constraint_name text;
     BEGIN

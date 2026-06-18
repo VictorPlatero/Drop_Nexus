@@ -19,6 +19,12 @@ interface JobOptions {
   incremental: boolean;
   scheduleMinutes?: number;
 }
+interface FailureDiagnosis {
+  code: string;
+  stage: string;
+  cause: string;
+  recommendation: string;
+}
 
 const activeJobs = new Map<string, AbortController>();
 let schedulerStarted = false;
@@ -29,6 +35,89 @@ function tableMappings(input: ReplicationRequest): TableMapping[] {
     destinationTable: input.destinationTable!,
     columnMappings: input.columnMappings
   }];
+}
+
+function diagnoseFailure(error: unknown, stage: string, sourceTable?: string): FailureDiagnosis {
+  const message = error instanceof Error ? error.message : String(error);
+  const lower = message.toLowerCase();
+  if (lower.includes("inconsistent types deduced") || lower.includes("could not determine data type")) {
+    return {
+      code: "METADATA_PARAMETER_TYPE",
+      stage,
+      cause: "La base de metadatos no pudo determinar el tipo de un parámetro interno.",
+      recommendation: "Actualiza la aplicación a la versión corregida y vuelve a ejecutar la replicación."
+    };
+  }
+  if (lower.includes("duplicate") || lower.includes("unique constraint") || lower.includes("duplicate key")) {
+    return {
+      code: "DUPLICATE_KEY",
+      stage,
+      cause: "El destino ya contiene una clave única o primaria con el mismo valor.",
+      recommendation: "Utiliza el modo Upsert, limpia la tabla destino o corrige las claves duplicadas."
+    };
+  }
+  if (lower.includes("foreign key") || lower.includes("referential")) {
+    return {
+      code: "FOREIGN_KEY",
+      stage,
+      cause: "Un registro referencia una fila que todavía no existe en la tabla relacionada.",
+      recommendation: "Replica primero las tablas padre o incluye todas las tablas relacionadas en el mismo flujo."
+    };
+  }
+  if (lower.includes("null") && (lower.includes("constraint") || lower.includes("not null"))) {
+    return {
+      code: "REQUIRED_VALUE",
+      stage,
+      cause: "Una columna obligatoria recibió un valor vacío.",
+      recommendation: "Mapea una columna de origen válida, permite NULL en el destino o completa los datos faltantes."
+    };
+  }
+  if (lower.includes("convert") || lower.includes("invalid input") || lower.includes("out of range") || lower.includes("truncat")) {
+    return {
+      code: "TYPE_CONVERSION",
+      stage,
+      cause: "Uno o más valores no son compatibles con el tipo de la columna destino.",
+      recommendation: "Revisa el mapeo y aplica una conversión de texto, número, fecha, booleano o JSON."
+    };
+  }
+  if (lower.includes("does not exist") || lower.includes("no existe") || lower.includes("not found")) {
+    return {
+      code: "MISSING_STRUCTURE",
+      stage,
+      cause: `No se encontró ${sourceTable ? `la tabla ${sourceTable}` : "una tabla o archivo requerido"}.`,
+      recommendation: "Vuelve a importar el archivo correcto y verifica los nombres de tablas seleccionados."
+    };
+  }
+  if (lower.includes("timeout") || lower.includes("tiempo de conexión") || lower.includes("econn")) {
+    return {
+      code: "CONNECTION_TIMEOUT",
+      stage,
+      cause: "La conexión con una de las bases expiró o fue interrumpida.",
+      recommendation: "Comprueba red, credenciales y disponibilidad del motor; luego usa Continuar."
+    };
+  }
+  if (lower.includes("permission") || lower.includes("denied") || lower.includes("permiso")) {
+    return {
+      code: "INSUFFICIENT_PERMISSION",
+      stage,
+      cause: "El usuario de conexión no tiene permisos suficientes para leer o escribir.",
+      recommendation: "Concede SELECT al origen y CREATE/INSERT/UPDATE al destino."
+    };
+  }
+  if (lower.includes("clave primaria") || lower.includes("primary key")) {
+    return {
+      code: "PRIMARY_KEY_REQUIRED",
+      stage,
+      cause: "El modo Upsert necesita una clave primaria para identificar cada registro.",
+      recommendation: "Define una clave primaria o cambia el modo de escritura a Insertar o Reemplazar."
+    };
+  }
+  return {
+    code: "UNCLASSIFIED_ERROR",
+    stage,
+    cause: message,
+    recommendation: "Descarga el reporte, revisa el detalle técnico y vuelve a intentar después de corregir la causa indicada."
+  };
 }
 
 async function prepare(userId: string, sourceConfigId: string, destinationConfigId: string, mapping: TableMapping) {
@@ -72,6 +161,9 @@ export async function previewReplication(userId: string, input: ReplicationReque
       const warnings: string[] = [];
       if (input.writeMode === "upsert" && !destinationColumns.some((column) => column.primaryKey)) {
         warnings.push("UPsert necesita una clave primaria detectada");
+      }
+      if (prepared.totalRecords === 0) {
+        warnings.push(`La tabla ${mapping.sourceTable} no contiene registros. El archivo puede incluir solo CREATE TABLE o tener los INSERT en otro archivo.`);
       }
       if (destinationSchema) {
         const destinationNames = new Set(destinationSchema.columns.map((column) => column.name));
@@ -182,11 +274,16 @@ async function executeStoredJob(id: string) {
   };
   const mapping = { sourceTable: row.source_table as string, destinationTable: row.destination_table as string, columnMappings: options.columnMappings };
   let prepared: Awaited<ReturnType<typeof prepare>>;
+  let stage = "preparación";
   try {
     prepared = await prepare(row.user_id, row.source_config_id, row.destination_config_id, mapping);
   } catch (error) {
     const message = error instanceof Error ? error.message : "No se pudieron preparar las conexiones";
-    await pool.query("UPDATE replications SET status='failed',last_error=$2,stopped_at=now(),updated_at=now() WHERE id=$1", [id, message]).catch(() => undefined);
+    const diagnosis = diagnoseFailure(error, stage, mapping.sourceTable);
+    await pool.query(
+      "UPDATE replications SET status='failed',last_error=$2,failure_stage=$3,failure_code=$4,failure_cause=$5,recommendation=$6,stopped_at=now(),updated_at=now() WHERE id=$1",
+      [id, message, diagnosis.stage, diagnosis.code, diagnosis.cause, diagnosis.recommendation]
+    ).catch(() => undefined);
     return;
   }
   const controller = new AbortController();
@@ -198,6 +295,7 @@ async function executeStoredJob(id: string) {
   let retryCount = Number(row.retry_count ?? 0);
   const errors = Array.isArray(row.error_details) ? row.error_details as Array<Record<string, unknown>> : [];
   try {
+    stage = "validación del esquema";
     const destinationColumns = mappedColumns(prepared.schema.columns, options.columnMappings);
     if (!prepared.exists) {
       if (!options.createDestination) throw new Error(`La tabla ${mapping.destinationTable} no existe`);
@@ -208,15 +306,21 @@ async function executeStoredJob(id: string) {
     }
     const keyColumns = destinationColumns.filter((column) => column.primaryKey).map((column) => column.name);
     if (options.writeMode === "upsert" && !keyColumns.length) throw new Error("UPsert requiere una clave primaria");
-    await pool.query("UPDATE replications SET status='running',total_records=$2,started_at=COALESCE(started_at,now()),updated_at=now() WHERE id=$1", [id, prepared.totalRecords]);
+    await pool.query(
+      "UPDATE replications SET status='running',total_records=$2,last_error=NULL,failure_stage=NULL,failure_code=NULL,failure_cause=NULL,recommendation=NULL,started_at=COALESCE(started_at,now()),updated_at=now() WHERE id=$1",
+      [id, prepared.totalRecords]
+    );
     let batch = Number(row.current_batch ?? 0);
     while (!controller.signal.aborted) {
+      stage = "lectura del origen";
       const sourceRows = await prepared.sourceAdapter.readBatch(mapping.sourceTable, offset, options.batchSize);
       if (!sourceRows.length) break;
+      stage = "transformación de datos";
       const rows = mapRows(sourceRows, options.columnMappings, prepared.destinationAdapter);
       let attempt = 0;
       while (true) {
         try {
+          stage = "escritura del destino";
           const written = options.writeMode === "upsert"
             ? await prepared.destinationAdapter.upsertBatch(mapping.destinationTable, rows, keyColumns)
             : await prepared.destinationAdapter.insertBatch(mapping.destinationTable, rows);
@@ -227,7 +331,8 @@ async function executeStoredJob(id: string) {
           retryCount++;
           if (attempt > options.maxRetries) {
             failed += rows.length;
-            errors.push({ offset, count: rows.length, message: error instanceof Error ? error.message : "Lote rechazado" });
+            const diagnosis = diagnoseFailure(error, stage, mapping.destinationTable);
+            errors.push({ offset, count: rows.length, message: error instanceof Error ? error.message : "Lote rechazado", ...diagnosis });
             break;
           }
           await new Promise((resolve) => setTimeout(resolve, Math.min(5000, 500 * 2 ** (attempt - 1))));
@@ -245,14 +350,24 @@ async function executeStoredJob(id: string) {
     }
     const status = controller.signal.aborted ? "stopped" : "completed";
     const nextRun = options.scheduleMinutes ? new Date(Date.now() + options.scheduleMinutes * 60_000) : null;
+    stage = "registro del resultado";
     await pool.query(
-      `UPDATE replications SET status=$2,records_copied=$3,failed_records=$4,stopped_at=now(),completed_at=CASE WHEN $2='completed' THEN now() ELSE completed_at END,
-       next_run_at=$5,current_offset=CASE WHEN $5::timestamptz IS NULL OR $6 THEN current_offset ELSE 0 END,updated_at=now() WHERE id=$1`,
-      [id, status, copied, failed, nextRun, options.incremental]
+      `UPDATE replications SET status=$2::text,records_copied=$3,failed_records=$4,stopped_at=now(),
+       completed_at=CASE WHEN $2::text='completed' THEN now() ELSE completed_at END,
+       next_run_at=$5::timestamptz,current_offset=CASE WHEN $5::timestamptz IS NULL OR $6::boolean THEN current_offset ELSE 0 END,
+       failure_stage=NULL,failure_code=NULL,
+       failure_cause=CASE WHEN $7::boolean THEN 'La tabla de origen no contiene registros.' ELSE NULL END,
+       recommendation=CASE WHEN $7::boolean THEN 'Importa también el archivo que contiene los INSERT o selecciona una tabla con datos.' ELSE NULL END,
+       updated_at=now() WHERE id=$1`,
+      [id, status, copied, failed, nextRun, options.incremental, prepared.totalRecords === 0]
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Replication failed";
-    await pool.query("UPDATE replications SET status='failed',last_error=$2,stopped_at=now(),updated_at=now() WHERE id=$1", [id, message]).catch(() => undefined);
+    const diagnosis = diagnoseFailure(error, stage, mapping.sourceTable);
+    await pool.query(
+      "UPDATE replications SET status='failed',last_error=$2,failure_stage=$3,failure_code=$4,failure_cause=$5,recommendation=$6,stopped_at=now(),updated_at=now() WHERE id=$1",
+      [id, message, diagnosis.stage, diagnosis.code, diagnosis.cause, diagnosis.recommendation]
+    ).catch(() => undefined);
     logger.error({ error, replicationId: id }, "Replication failed");
   } finally {
     activeJobs.delete(id);
@@ -269,7 +384,7 @@ export async function stopReplication(id: string, userId: string): Promise<boole
 }
 
 export async function resumeReplication(id: string, userId: string): Promise<boolean> {
-  const result = await pool.query("UPDATE replications SET status='starting',last_error=NULL,updated_at=now() WHERE id=$1 AND user_id=$2 AND status IN ('stopped','failed') RETURNING id", [id, userId]);
+  const result = await pool.query("UPDATE replications SET status='starting',last_error=NULL,failure_stage=NULL,failure_code=NULL,failure_cause=NULL,recommendation=NULL,updated_at=now() WHERE id=$1 AND user_id=$2 AND status IN ('stopped','failed') RETURNING id", [id, userId]);
   if (!result.rowCount) return false;
   void executeStoredJob(id);
   return true;
@@ -277,7 +392,7 @@ export async function resumeReplication(id: string, userId: string): Promise<boo
 
 export async function retryReplication(id: string, userId: string): Promise<boolean> {
   const result = await pool.query(
-    "UPDATE replications SET status='starting',last_error=NULL,current_offset=0,current_batch=0,records_copied=0,failed_records=0,retry_count=0,error_details='[]'::jsonb,updated_at=now() WHERE id=$1 AND user_id=$2 AND status IN ('completed','stopped','failed') RETURNING id",
+    "UPDATE replications SET status='starting',last_error=NULL,failure_stage=NULL,failure_code=NULL,failure_cause=NULL,recommendation=NULL,current_offset=0,current_batch=0,records_copied=0,failed_records=0,retry_count=0,error_details='[]'::jsonb,updated_at=now() WHERE id=$1 AND user_id=$2 AND status IN ('completed','stopped','failed') RETURNING id",
     [id, userId]
   );
   if (!result.rowCount) return false;

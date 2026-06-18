@@ -13,6 +13,7 @@ interface Replication {
   records_copied: number; failed_records: number; total_records?: number; current_offset: number;
   current_batch: number; speed_rows_per_second: number; retry_count: number; progress_percent: number;
   last_error?: string; error_details?: Array<{ offset: number; count: number; message: string }>;
+  failure_stage?: string; failure_code?: string; failure_cause?: string; recommendation?: string;
   created_at: string; next_run_at?: string;
 }
 
@@ -260,15 +261,17 @@ function MappingEditor({ tables, schemas, destinationSchemas, mappings, setMappi
 }
 
 function ActivityTable({ replications, action, downloadReport }: { replications: Replication[]; action(id: string, operation: "stop" | "resume" | "retry"): void; downloadReport(job: Replication): void }) {
+  const [expanded, setExpanded] = useState<string>();
   return <div className="mt-6"><h2 className="mb-3 font-medium text-white">Actividad e historial</h2><div className="table-shell"><table><thead><tr><th>Flujo</th><th>Progreso</th><th>Rendimiento</th><th>Estado</th><th></th></tr></thead><tbody>
-    {replications.length ? replications.map((job) => <tr key={job.id}><td><div className="text-zinc-300">{job.source_table} → {job.destination_table}</div><div className="mt-1 text-xs text-zinc-600">{new Date(job.created_at).toLocaleString()}</div>{job.last_error && <div className="mt-1 max-w-sm truncate text-xs text-red-400">{job.last_error}</div>}</td>
+    {replications.length ? replications.flatMap((job) => [<tr key={job.id}><td><div className="text-zinc-300">{job.source_table} → {job.destination_table}</div><div className="mt-1 text-xs text-zinc-600">{new Date(job.created_at).toLocaleString()}</div>{job.last_error && <button className="mt-1 block max-w-sm truncate text-left text-xs text-red-400 hover:underline" onClick={() => setExpanded(expanded === job.id ? undefined : job.id)}>{job.last_error}</button>}{!job.last_error && job.failure_cause && <button className="mt-1 text-left text-xs text-amber-400 hover:underline" onClick={() => setExpanded(expanded === job.id ? undefined : job.id)}>{job.failure_cause}</button>}</td>
       <td><div className="mb-1 flex justify-between text-xs"><span>{Number(job.progress_percent ?? 0)}%</span><span>{Number(job.records_copied).toLocaleString()} / {Number(job.total_records ?? 0).toLocaleString()}</span></div><div className="h-1.5 w-48 overflow-hidden rounded bg-zinc-800"><div className="h-full bg-blue-500" style={{ width: `${job.progress_percent ?? 0}%` }} /></div>{Number(job.failed_records) > 0 && <div className="mt-1 text-xs text-red-400">{job.failed_records} rechazados</div>}</td>
       <td className="text-xs text-zinc-400">{Math.round(Number(job.speed_rows_per_second ?? 0)).toLocaleString()} filas/s<br />Lote {job.current_batch} · {job.retry_count} reintentos</td>
       <td><Status status={job.status} />{job.next_run_at && <div className="mt-1 text-[10px] text-zinc-600">{new Date(job.next_run_at).toLocaleString()}</div>}</td>
       <td><div className="flex gap-1">{["running", "starting", "scheduled"].includes(job.status) && <button className="btn-danger" title="Detener" onClick={() => action(job.id, "stop")}><Pause size={14} /></button>}
         {["stopped", "failed"].includes(job.status) && <button className="btn-secondary" title="Continuar" onClick={() => action(job.id, "resume")}><Play size={14} /></button>}
         {["completed", "stopped", "failed"].includes(job.status) && <button className="btn-secondary" title="Reiniciar desde cero" onClick={() => action(job.id, "retry")}><RotateCcw size={14} /></button>}
-        <button className="btn-secondary" title="Descargar reporte" onClick={() => downloadReport(job)}><Download size={14} /></button></div></td></tr>) : <tr><td colSpan={5} className="py-10 text-center text-zinc-600">Sin replicaciones todavía</td></tr>}
+        <button className="btn-secondary" title="Descargar reporte" onClick={() => downloadReport(job)}><Download size={14} /></button></div></td></tr>,
+      expanded === job.id && (job.last_error || job.failure_cause) ? <tr key={`${job.id}-diagnosis`}><td colSpan={5} className="bg-[#0B0B0B]"><div className="grid gap-3 p-3 md:grid-cols-3"><div><div className="text-[10px] uppercase text-zinc-600">Etapa</div><div className="mt-1 text-sm text-zinc-300">{job.failure_stage ?? "Resultado"}</div></div><div><div className="text-[10px] uppercase text-zinc-600">Causa probable</div><div className="mt-1 text-sm text-red-300">{job.failure_cause ?? job.last_error}</div></div><div><div className="text-[10px] uppercase text-zinc-600">Cómo resolverlo</div><div className="mt-1 text-sm text-emerald-300">{job.recommendation ?? "Descarga el reporte para revisar el detalle técnico."}</div></div></div></td></tr> : null].filter(Boolean)) : <tr><td colSpan={5} className="py-10 text-center text-zinc-600">Sin replicaciones todavía</td></tr>}
   </tbody></table></div></div>;
 }
 
