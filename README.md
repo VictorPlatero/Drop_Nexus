@@ -8,7 +8,7 @@ SaaS multi-tenant para configurar, supervisar y ejecutar replicaciones por lotes
 
 - Node.js 20 o superior
 - Acceso de red a Supabase y a las bases externas configuradas
-- Para SQLite en Render, un disco persistente si el archivo debe sobrevivir despliegues
+- No requiere disco persistente en Render; los catálogos comprimidos se guardan en PostgreSQL/Supabase
 
 ## Desarrollo local
 
@@ -73,7 +73,7 @@ No es necesario ejecutar migraciones manuales en Supabase: el backend crea y amp
 
 La importación `.bak` solo funciona si Render tiene acceso a un SQL Server externo y a una carpeta compartida visible con la misma ruta para ambos servicios. Sin esa infraestructura, utiliza scripts `.sql`; Render no incluye SQL Server dentro del servicio Node.
 
-El servicio necesita un disco persistente montado en `/var/data` y la variable `DATABASE_UPLOAD_DIR=/var/data/databases`. La aplicación crea la subcarpeta `databases` dentro del volumen. En servicios de Render creados antes de añadir `render.yaml`, comprueba el disco desde el panel o vuelve a sincronizar el Blueprint. Los archivos guardados anteriormente bajo `/opt/render/project/src/backend/storage/databases` pertenecían al sistema temporal y deben importarse nuevamente.
+Los catálogos normalizados se comprimen y almacenan en Supabase/PostgreSQL, por lo que el servicio web no necesita Persistent Disk. Los archivos originales se usan temporalmente durante la importación y se eliminan al terminar. Las configuraciones antiguas que apuntan a `/opt/render/project/...` o `/var/data/...` deben eliminarse e importarse nuevamente una sola vez.
 
 ## Seguridad y operación
 
@@ -86,7 +86,7 @@ El servicio necesita un disco persistente montado en `/var/data` y la variable `
 - Aislamiento de configuraciones por `user_id`; el admin solo obtiene una vista sin credenciales.
 - Timeout de conexión de 5 segundos, máximo 10 configuraciones por usuario y lotes de 5000 filas.
 - El progreso de los trabajos se conserva en PostgreSQL y las ejecuciones interrumpidas se reanudan al arrancar.
-- En Render, `render.yaml` monta `/var/data/sqlite` como disco persistente para conservar las bases SQLite subidas.
+- En Render, los catálogos de SQLite y de los demás formatos se conservan en Supabase/PostgreSQL.
 
 ## Nota sobre replicación
 

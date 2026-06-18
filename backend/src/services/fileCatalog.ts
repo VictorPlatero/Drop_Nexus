@@ -4,12 +4,15 @@ import os from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { randomUUID } from "node:crypto";
+import { gzip, gunzip } from "node:zlib";
+import { promisify } from "node:util";
 import sqlite3 from "sqlite3";
 import sql from "mssql";
 import type { MultipartFile } from "@fastify/multipart";
 import type { ColumnSchema, DbEngine } from "../types/index.js";
 import { SQLServerAdapter } from "../adapters/SQLServerAdapter.js";
 import { maxDatabaseFileSizeBytes, maxDatabaseFileSizeMb } from "../utils/uploadLimits.js";
+import { pool } from "../db/database.js";
 
 export interface CatalogTable {
   name: string;
@@ -29,9 +32,6 @@ export function catalogRoot(): string {
 }
 
 function catalogRootCandidates(): string[] {
-  if (process.env.NODE_ENV === "production") {
-    return [path.resolve(process.env.DATABASE_UPLOAD_DIR ?? "/var/data/databases")];
-  }
   return [
     process.env.DATABASE_UPLOAD_DIR,
     process.env.SQLITE_UPLOAD_DIR,
@@ -54,7 +54,16 @@ async function writableUserDirectory(userId: string): Promise<string> {
   throw new Error(`No hay un directorio escribible para almacenar bases importadas. ${errors.join(" | ")}`);
 }
 
+async function temporaryUserDirectory(userId: string): Promise<string> {
+  const directory = path.join(os.tmpdir(), "drop-nexus", "uploads", String(userId));
+  await mkdir(directory, { recursive: true });
+  return directory;
+}
+
 export function isOwnedCatalogPath(filePath: string, userId: string): boolean {
+  if (filePath.startsWith(DATABASE_CATALOG_PREFIX)) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(filePath.slice(DATABASE_CATALOG_PREFIX.length));
+  }
   const resolved = path.resolve(filePath);
   return catalogRootCandidates().some((root) => resolved.startsWith(`${path.join(root, String(userId))}${path.sep}`));
 }
@@ -65,6 +74,19 @@ function extensionsFor(engine: DbEngine): string[] {
   if (engine === "sqlserver") return [".sql", ".bak"];
   return [".sql"];
 }
+
+export async function isOwnedCatalogReference(filePath: string, userId: string): Promise<boolean> {
+  if (!filePath.startsWith(DATABASE_CATALOG_PREFIX)) return isOwnedCatalogPath(filePath, userId);
+  const result = await pool.query(
+    "SELECT 1 FROM database_catalogs WHERE id=$1 AND user_id=$2",
+    [filePath.slice(DATABASE_CATALOG_PREFIX.length), String(userId)]
+  );
+  return Boolean(result.rowCount);
+}
+
+const gzipAsync = promisify(gzip);
+const gunzipAsync = promisify(gunzip);
+const DATABASE_CATALOG_PREFIX = "catalog-db://";
 
 async function writableBackupDirectory(userId: string): Promise<string> {
   if (!process.env.SQLSERVER_BACKUP_DIR) throw new Error("SQLSERVER_BACKUP_DIR no está configurado");
@@ -79,10 +101,12 @@ export async function importDatabaseFile(file: MultipartFile, userId: string, en
     throw new Error(`Formato no válido para ${engine}. Usa ${extensionsFor(engine).join(", ")}`);
   }
   if (extension === ".bak") assertBakRestoreConfigured();
-  const directory = await writableUserDirectory(userId);
+  const directory = process.env.NODE_ENV === "production"
+    ? await temporaryUserDirectory(userId)
+    : await writableUserDirectory(userId);
   const rawDirectory = extension === ".bak" ? await writableBackupDirectory(userId) : directory;
   const rawPath = path.join(rawDirectory, `${randomUUID()}${extension}`);
-  const catalogPath = path.join(directory, `${randomUUID()}.catalog.json`);
+  let catalogPath = "";
   let size = 0;
   file.file.on("data", (chunk: Buffer) => {
     size += chunk.length;
@@ -101,14 +125,27 @@ export async function importDatabaseFile(file: MultipartFile, userId: string, en
           : await importSql(rawPath);
     if (!tables.length) throw new Error("No se encontraron tablas o colecciones importables");
     const catalog: FileCatalog = { version: 1, sourceEngine: engine, originalName: path.basename(file.filename), tables };
-    await writeFile(catalogPath, JSON.stringify(catalog), "utf8");
+    catalogPath = process.env.NODE_ENV === "production"
+      ? await createDatabaseCatalog(userId, catalog)
+      : path.join(directory, `${randomUUID()}.catalog.json`);
+    if (!catalogPath.startsWith(DATABASE_CATALOG_PREFIX)) await writeFile(catalogPath, JSON.stringify(catalog), "utf8");
     return { catalogPath, originalName: catalog.originalName, size, tableCount: tables.length };
   } catch (error) {
-    await rm(catalogPath, { force: true }).catch(() => undefined);
+    if (catalogPath) await removeOwnedCatalog(catalogPath, userId).catch(() => undefined);
     throw error;
   } finally {
     await rm(rawPath, { force: true }).catch(() => undefined);
   }
+}
+
+async function createDatabaseCatalog(userId: string, catalog: FileCatalog): Promise<string> {
+  const compressed = await gzipAsync(Buffer.from(JSON.stringify(catalog), "utf8"));
+  const result = await pool.query(
+    `INSERT INTO database_catalogs (user_id,original_name,source_engine,catalog_data,size_bytes)
+     VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+    [String(userId), catalog.originalName, catalog.sourceEngine, compressed, compressed.length]
+  );
+  return `${DATABASE_CATALOG_PREFIX}${result.rows[0].id as string}`;
 }
 
 function assertBakRestoreConfigured(): void {
@@ -214,6 +251,19 @@ async function importSqlServerBackup(filePath: string): Promise<CatalogTable[]> 
 }
 
 export async function readCatalog(filePath: string): Promise<FileCatalog> {
+  if (filePath.startsWith(DATABASE_CATALOG_PREFIX)) {
+    const result = await pool.query(
+      "SELECT catalog_data FROM database_catalogs WHERE id=$1",
+      [filePath.slice(DATABASE_CATALOG_PREFIX.length)]
+    );
+    if (!result.rows[0]) throw new Error("El catálogo importado no existe. Elimina esta base e importa nuevamente el archivo.");
+    try {
+      const bytes = await gunzipAsync(result.rows[0].catalog_data as Buffer);
+      return JSON.parse(bytes.toString("utf8")) as FileCatalog;
+    } catch {
+      throw new Error("El catálogo almacenado está dañado. Elimina esta base e importa nuevamente el archivo.");
+    }
+  }
   try {
     return JSON.parse(await readFile(filePath, "utf8")) as FileCatalog;
   } catch (error) {
@@ -230,10 +280,26 @@ export async function readCatalog(filePath: string): Promise<FileCatalog> {
 }
 
 export async function writeCatalog(filePath: string, catalog: FileCatalog): Promise<void> {
+  if (filePath.startsWith(DATABASE_CATALOG_PREFIX)) {
+    const compressed = await gzipAsync(Buffer.from(JSON.stringify(catalog), "utf8"));
+    const result = await pool.query(
+      "UPDATE database_catalogs SET catalog_data=$2,size_bytes=$3,updated_at=now() WHERE id=$1",
+      [filePath.slice(DATABASE_CATALOG_PREFIX.length), compressed, compressed.length]
+    );
+    if (!result.rowCount) throw new Error("El catálogo importado ya no existe");
+    return;
+  }
   await writeFile(filePath, JSON.stringify(catalog), "utf8");
 }
 
 export async function removeOwnedCatalog(filePath: string | undefined, userId: string): Promise<void> {
+  if (filePath?.startsWith(DATABASE_CATALOG_PREFIX)) {
+    await pool.query(
+      "DELETE FROM database_catalogs WHERE id=$1 AND user_id=$2",
+      [filePath.slice(DATABASE_CATALOG_PREFIX.length), String(userId)]
+    );
+    return;
+  }
   if (filePath && isOwnedCatalogPath(filePath, userId)) await rm(filePath, { force: true }).catch(() => undefined);
 }
 

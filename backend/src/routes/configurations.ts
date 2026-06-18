@@ -13,7 +13,7 @@ import {
 import { withAdapter } from "../services/connectionManager.js";
 import {
   importDatabaseFile,
-  isOwnedCatalogPath,
+  isOwnedCatalogReference,
   removeOwnedCatalog
 } from "../services/fileCatalog.js";
 import { maxDatabaseFileSizeBytes } from "../utils/uploadLimits.js";
@@ -56,7 +56,7 @@ export async function configurationRoutes(app: FastifyInstance): Promise<void> {
   app.post("/", guards, async (request, reply) => {
     const parsed = configSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ message: "Configuración inválida", issues: parsed.error.flatten() });
-    if (!isOwnedCatalogPath(parsed.data.database, request.user.id) || parsed.data.options?.storageMode !== "fileCatalog") {
+    if (!await isOwnedCatalogReference(parsed.data.database, request.user.id) || parsed.data.options?.storageMode !== "fileCatalog") {
       return reply.code(400).send({ message: "Debes subir la base de datos desde tu computadora" });
     }
     const config = await createConfiguration(request.user.id, parsed.data);
@@ -69,7 +69,7 @@ export async function configurationRoutes(app: FastifyInstance): Promise<void> {
     if (!current) return reply.code(404).send({ message: "Base de datos no encontrada" });
     const parsed = configSchema.partial().safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ message: "Configuración inválida", issues: parsed.error.flatten() });
-    if (parsed.data.database && !isOwnedCatalogPath(parsed.data.database, request.user.id)) {
+    if (parsed.data.database && !await isOwnedCatalogReference(parsed.data.database, request.user.id)) {
       return reply.code(400).send({ message: "Archivo de base de datos no autorizado" });
     }
     const config = await updateConfiguration(id, request.user.id, parsed.data);

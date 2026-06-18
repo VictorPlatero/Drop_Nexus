@@ -8,10 +8,6 @@ services:
     startCommand: npm start
     healthCheckPath: /api/status
     autoDeploy: true
-    disk:
-      name: database-files
-      mountPath: /var/data
-      sizeGB: 5
     envVars:
       - key: NODE_VERSION
         value: "22.14.0"
@@ -23,8 +19,6 @@ services:
         generateValue: true
       - key: ENCRYPTION_KEY
         generateValue: true
-      - key: DATABASE_UPLOAD_DIR
-        value: /var/data/databases
       - key: MAX_DATABASE_FILE_SIZE_MB
         value: "500"
       - key: ADMIN_EMAIL

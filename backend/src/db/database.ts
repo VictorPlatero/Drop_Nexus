@@ -71,10 +71,21 @@ export async function initializeDatabase(): Promise<void> {
       error text,
       checked_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS database_catalogs (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id text NOT NULL,
+      original_name text NOT NULL,
+      source_engine text NOT NULL,
+      catalog_data bytea NOT NULL,
+      size_bytes bigint NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
     CREATE INDEX IF NOT EXISTS idx_db_configurations_user_id ON db_configurations(user_id);
     CREATE INDEX IF NOT EXISTS idx_replications_user_status ON replications(user_id, status);
     CREATE INDEX IF NOT EXISTS idx_users_activity ON users(last_login_at, created_at);
     CREATE INDEX IF NOT EXISTS idx_health_checks_config_time ON health_checks(config_id, checked_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_database_catalogs_user_id ON database_catalogs(user_id);
   `);
   await pool.query(`
     ALTER TABLE users ADD COLUMN IF NOT EXISTS name text;
