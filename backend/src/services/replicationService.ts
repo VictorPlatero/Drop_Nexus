@@ -402,7 +402,11 @@ export async function retryReplication(id: string, userId: string): Promise<bool
 
 export async function listReplications(userId: string) {
   return (await pool.query(
-    `SELECT *, CASE WHEN total_records > 0 THEN LEAST(100,ROUND((current_offset::numeric/total_records::numeric)*100,1)) ELSE 0 END progress_percent
+    `SELECT *, CASE
+       WHEN status='completed' THEN 100
+       WHEN total_records > 0 THEN LEAST(100,ROUND((current_offset::numeric/total_records::numeric)*100,1))
+       ELSE 0
+     END progress_percent
      FROM replications WHERE user_id=$1 ORDER BY created_at DESC LIMIT 200`,
     [userId]
   )).rows;
