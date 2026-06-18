@@ -10,7 +10,7 @@ services:
     autoDeploy: true
     disk:
       name: database-files
-      mountPath: /var/data/databases
+      mountPath: /var/data
       sizeGB: 5
     envVars:
       - key: NODE_VERSION
