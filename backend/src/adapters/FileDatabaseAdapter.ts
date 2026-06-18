@@ -35,12 +35,36 @@ export class FileDatabaseAdapter implements DatabaseAdapter {
     this.data().tables.push({ name, columns, rows: [] });
     await writeCatalog(this.config.database, this.data());
   }
+  async countRows(name: string): Promise<number> { return this.table(name).rows.length; }
+  async clearTable(name: string): Promise<void> {
+    if (!this.config.database) throw new Error("Archivo no disponible");
+    this.table(name).rows = [];
+    await writeCatalog(this.config.database, this.data());
+  }
   async readBatch(name: string, offset: number, limit: number): Promise<Record<string, unknown>[]> {
     return this.table(name).rows.slice(offset, offset + limit);
   }
   async insertBatch(name: string, rows: Record<string, unknown>[]): Promise<number> {
     if (!this.config.database) throw new Error("Archivo no disponible");
     this.table(name).rows.push(...rows);
+    await writeCatalog(this.config.database, this.data());
+    return rows.length;
+  }
+  async upsertBatch(name: string, rows: Record<string, unknown>[], keyColumns: string[]): Promise<number> {
+    if (!this.config.database) throw new Error("Archivo no disponible");
+    if (!keyColumns.length) throw new Error("UPsert requiere una clave primaria");
+    const table = this.table(name);
+    const key = (row: Record<string, unknown>) => JSON.stringify(keyColumns.map((column) => row[column]));
+    const indexes = new Map(table.rows.map((row, index) => [key(row), index]));
+    for (const row of rows) {
+      const existing = indexes.get(key(row));
+      if (existing === undefined) {
+        indexes.set(key(row), table.rows.length);
+        table.rows.push(row);
+      } else {
+        table.rows[existing] = { ...table.rows[existing], ...row };
+      }
+    }
     await writeCatalog(this.config.database, this.data());
     return rows.length;
   }

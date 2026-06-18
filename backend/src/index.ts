@@ -15,6 +15,7 @@ import { authRoutes } from "./routes/auth.js";
 import { userRoutes } from "./routes/users.js";
 import { adminRoutes } from "./routes/admin.js";
 import { maxDatabaseFileSizeBytes } from "./utils/uploadLimits.js";
+import { resumePendingReplications } from "./services/replicationService.js";
 import { configurationRoutes } from "./routes/configurations.js";
 import { replicationRoutes } from "./routes/replication.js";
 import { healthRoutes } from "./routes/health.js";
@@ -63,6 +64,7 @@ app.setErrorHandler((error, request, reply) => {
 
 await initializeDatabase();
 await seedAdmin();
+await resumePendingReplications();
 await cleanupExpiredConfigurations();
 startExpirationCleanup();
 

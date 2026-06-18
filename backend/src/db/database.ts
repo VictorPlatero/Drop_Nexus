@@ -61,9 +61,20 @@ export async function initializeDatabase(): Promise<void> {
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS health_checks (
+      id bigserial PRIMARY KEY,
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      config_id uuid NOT NULL REFERENCES db_configurations(id) ON DELETE CASCADE,
+      status text NOT NULL,
+      latency_ms integer NOT NULL,
+      read_rows_per_second numeric,
+      error text,
+      checked_at timestamptz NOT NULL DEFAULT now()
+    );
     CREATE INDEX IF NOT EXISTS idx_db_configurations_user_id ON db_configurations(user_id);
     CREATE INDEX IF NOT EXISTS idx_replications_user_status ON replications(user_id, status);
     CREATE INDEX IF NOT EXISTS idx_users_activity ON users(last_login_at, created_at);
+    CREATE INDEX IF NOT EXISTS idx_health_checks_config_time ON health_checks(config_id, checked_at DESC);
   `);
   await pool.query(`
     ALTER TABLE users ADD COLUMN IF NOT EXISTS name text;
@@ -102,7 +113,20 @@ export async function initializeDatabase(): Promise<void> {
     ALTER TABLE replications ADD COLUMN IF NOT EXISTS stopped_at timestamptz;
     ALTER TABLE replications ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
     ALTER TABLE replications ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+    ALTER TABLE replications ADD COLUMN IF NOT EXISTS group_id uuid DEFAULT gen_random_uuid();
+    ALTER TABLE replications ADD COLUMN IF NOT EXISTS options jsonb DEFAULT '{}'::jsonb;
+    ALTER TABLE replications ADD COLUMN IF NOT EXISTS total_records bigint;
+    ALTER TABLE replications ADD COLUMN IF NOT EXISTS failed_records bigint DEFAULT 0;
+    ALTER TABLE replications ADD COLUMN IF NOT EXISTS current_offset bigint DEFAULT 0;
+    ALTER TABLE replications ADD COLUMN IF NOT EXISTS current_batch integer DEFAULT 0;
+    ALTER TABLE replications ADD COLUMN IF NOT EXISTS speed_rows_per_second numeric DEFAULT 0;
+    ALTER TABLE replications ADD COLUMN IF NOT EXISTS retry_count integer DEFAULT 0;
+    ALTER TABLE replications ADD COLUMN IF NOT EXISTS completed_at timestamptz;
+    ALTER TABLE replications ADD COLUMN IF NOT EXISTS next_run_at timestamptz;
+    ALTER TABLE replications ADD COLUMN IF NOT EXISTS error_details jsonb DEFAULT '[]'::jsonb;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(lower(email));
+    CREATE INDEX IF NOT EXISTS idx_replications_group_id ON replications(group_id);
+    CREATE INDEX IF NOT EXISTS idx_replications_next_run ON replications(next_run_at) WHERE next_run_at IS NOT NULL;
   `);
   await pool.query(`
     DO $$
@@ -113,7 +137,7 @@ export async function initializeDatabase(): Promise<void> {
         FROM information_schema.columns
         WHERE table_name = 'replications'
           AND column_name = 'destination_config_id'
-          AND data_type = 'uuid'
+          AND data_type <> 'uuid'
       ) AND NOT EXISTS (SELECT 1 FROM replications) THEN
         FOR constraint_name IN
           SELECT conname
@@ -124,7 +148,7 @@ export async function initializeDatabase(): Promise<void> {
           EXECUTE format('ALTER TABLE replications DROP CONSTRAINT %I', constraint_name);
         END LOOP;
         ALTER TABLE replications
-          ALTER COLUMN destination_config_id TYPE integer USING NULL::integer;
+          ALTER COLUMN destination_config_id TYPE uuid USING NULL::uuid;
       END IF;
     END $$;
   `);

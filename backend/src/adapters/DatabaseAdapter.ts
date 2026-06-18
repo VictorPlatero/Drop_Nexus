@@ -10,8 +10,11 @@ export interface DatabaseAdapter {
   tableExists(table: string): Promise<boolean>;
   previewCreateTable(table: string, columns: ColumnSchema[]): string;
   createTable(table: string, columns: ColumnSchema[]): Promise<void>;
+  countRows(table: string): Promise<number>;
+  clearTable(table: string): Promise<void>;
   readBatch(table: string, offset: number, limit: number): Promise<Record<string, unknown>[]>;
   insertBatch(table: string, rows: Record<string, unknown>[]): Promise<number>;
+  upsertBatch(table: string, rows: Record<string, unknown>[], keyColumns: string[]): Promise<number>;
   verifyReadPermission(table: string): Promise<void>;
   verifyWritePermission(table: string, tableExists: boolean): Promise<void>;
 }

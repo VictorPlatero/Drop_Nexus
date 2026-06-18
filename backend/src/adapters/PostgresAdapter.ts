@@ -50,6 +50,10 @@ export class PostgresAdapter implements DatabaseAdapter {
   }
   previewCreateTable(table: string, columns: ColumnSchema[]): string { return buildCreateTableSql(table, columns, "postgresql"); }
   async createTable(table: string, columns: ColumnSchema[]): Promise<void> { await this.db().query(this.previewCreateTable(table, columns)); }
+  async countRows(table: string): Promise<number> {
+    return Number((await this.db().query(`SELECT COUNT(*) count FROM ${qualifiedIdentifier(table, "postgresql")}`)).rows[0].count);
+  }
+  async clearTable(table: string): Promise<void> { await this.db().query(`TRUNCATE TABLE ${qualifiedIdentifier(table, "postgresql")}`); }
   async readBatch(table: string, offset: number, limit: number): Promise<Record<string, unknown>[]> {
     return (await this.db().query(`SELECT * FROM ${qualifiedIdentifier(table, "postgresql")} OFFSET $1 LIMIT $2`, [offset, limit])).rows;
   }
@@ -59,6 +63,23 @@ export class PostgresAdapter implements DatabaseAdapter {
     const values: unknown[] = [];
     const groups = rows.map((row, rowIndex) => `(${columns.map((column, columnIndex) => { values.push(row[column]); return `$${rowIndex * columns.length + columnIndex + 1}`; }).join(",")})`);
     await this.db().query(`INSERT INTO ${qualifiedIdentifier(table, "postgresql")} (${columns.map((c) => qualifiedIdentifier(c, "postgresql")).join(",")}) VALUES ${groups.join(",")}`, values);
+    return rows.length;
+  }
+  async upsertBatch(table: string, rows: Record<string, unknown>[], keyColumns: string[]): Promise<number> {
+    if (!rows.length) return 0;
+    if (!keyColumns.length) throw new Error("UPsert requiere una clave primaria");
+    const columns = Object.keys(rows[0]!);
+    const values: unknown[] = [];
+    const groups = rows.map((row, rowIndex) => `(${columns.map((column, columnIndex) => {
+      values.push(row[column]); return `$${rowIndex * columns.length + columnIndex + 1}`;
+    }).join(",")})`);
+    const updates = columns.filter((column) => !keyColumns.includes(column))
+      .map((column) => `${qualifiedIdentifier(column, "postgresql")}=EXCLUDED.${qualifiedIdentifier(column, "postgresql")}`);
+    const conflict = keyColumns.map((column) => qualifiedIdentifier(column, "postgresql")).join(",");
+    await this.db().query(
+      `INSERT INTO ${qualifiedIdentifier(table, "postgresql")} (${columns.map((column) => qualifiedIdentifier(column, "postgresql")).join(",")}) VALUES ${groups.join(",")} ON CONFLICT (${conflict}) ${updates.length ? `DO UPDATE SET ${updates.join(",")}` : "DO NOTHING"}`,
+      values
+    );
     return rows.length;
   }
   async verifyReadPermission(table: string): Promise<void> { await this.db().query(`SELECT 1 FROM ${qualifiedIdentifier(table, "postgresql")} LIMIT 0`); }

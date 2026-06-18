@@ -79,9 +79,13 @@ En producción Fastify sirve `frontend/dist` y las APIs bajo `/api`.
 - Consultas de valores parametrizadas e identificadores escapados por motor.
 - Aislamiento de configuraciones por `user_id`; el admin solo obtiene una vista sin credenciales.
 - Timeout de conexión de 5 segundos, máximo 10 configuraciones por usuario y lotes de 5000 filas.
-- Los trabajos activos se mantienen en memoria. Detener o reiniciar una instancia marca el proceso operativo como interrumpido; para ejecución distribuida de larga duración conviene añadir una cola persistente.
+- El progreso de los trabajos se conserva en PostgreSQL y las ejecuciones interrumpidas se reanudan al arrancar.
 - En Render, `render.yaml` monta `/var/data/sqlite` como disco persistente para conservar las bases SQLite subidas.
 
 ## Nota sobre replicación
 
-La implementación realiza una copia incremental por offset durante una ejecución. No es CDC. Si se requiere replicación continua con garantías exact-once, el siguiente nivel arquitectónico es usar WAL/binlog/change streams y una cola persistente.
+El replicador permite selección múltiple de tablas, mapeo y transformación de columnas, modos insertar/upsert/reemplazar/recargar, reintentos, progreso persistente, reanudación y ejecuciones programadas incrementales por offset.
+
+Las ejecuciones incrementales por offset son adecuadas cuando el origen agrega filas de forma estable. No constituyen CDC ni garantizan exact-once si se eliminan o reordenan filas durante el proceso. Para ese nivel se requiere WAL, binlog o change streams y una cola persistente.
+
+El Health Monitor conserva siete días de comprobaciones y resume disponibilidad y latencia de las últimas 24 horas. El Documentador incluye perfil de columnas, comparación de esquemas, relaciones detectadas, ocultamiento de campos sensibles y exportación HTML/Markdown.

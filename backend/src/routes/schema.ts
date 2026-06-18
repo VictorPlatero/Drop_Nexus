@@ -4,9 +4,13 @@ import { authenticate } from "../middleware/auth.js";
 import { getConfiguration } from "../services/dbConfigService.js";
 import {
   databaseToExcelXml,
+  compareSchemas,
   extractDatabaseData,
   extractSchema,
   extractTableData,
+  schemaToHtml,
+  schemaToMarkdown,
+  tableStatistics,
   tableToCsv
 } from "../services/schemaExtractor.js";
 
@@ -37,6 +41,28 @@ export async function schemaRoutes(app: FastifyInstance): Promise<void> {
     } catch (error) {
       return reply.code(404).send({ message: error instanceof Error ? error.message : "No se pudieron cargar los datos" });
     }
+  });
+
+  app.get("/:configId/statistics/:table", { preHandler: [authenticate] }, async (request, reply) => {
+    const { configId, table } = request.params as { configId: string; table: string };
+    try { return await tableStatistics(configId, request.user.id, table); }
+    catch (error) { return reply.code(404).send({ message: error instanceof Error ? error.message : "No se pudieron calcular estadísticas" }); }
+  });
+
+  app.get("/:configId/compare/:destinationId", { preHandler: [authenticate] }, async (request, reply) => {
+    const { configId, destinationId } = request.params as { configId: string; destinationId: string };
+    try { return { comparison: await compareSchemas(configId, destinationId, request.user.id) }; }
+    catch (error) { return reply.code(404).send({ message: error instanceof Error ? error.message : "No se pudieron comparar los esquemas" }); }
+  });
+
+  app.get("/:configId/export/documentation/:format", { preHandler: [authenticate] }, async (request, reply) => {
+    const { configId, format } = request.params as { configId: string; format: string };
+    const config = await getConfiguration(configId, request.user.id);
+    if (!config) return reply.code(404).send({ message: "Configuración no encontrada" });
+    const tables = await extractSchema(configId, request.user.id);
+    if (format === "html") return reply.header("Content-Type", "text/html; charset=utf-8").header("Content-Disposition", `attachment; filename="${downloadName(config.name)}.html"`).send(schemaToHtml(config.name, tables));
+    if (format === "markdown") return reply.header("Content-Type", "text/markdown; charset=utf-8").header("Content-Disposition", `attachment; filename="${downloadName(config.name)}.md"`).send(schemaToMarkdown(config.name, tables));
+    return reply.code(400).send({ message: "Formato no compatible" });
   });
 
   app.get("/:configId/export/json", { preHandler: [authenticate] }, async (request, reply) => {

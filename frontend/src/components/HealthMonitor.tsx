@@ -6,6 +6,7 @@ interface HealthItem {
   configId: string; name: string; engine: string; status: "connected" | "disconnected";
   latencyMs: number; lastCheck: string; error?: string;
   replication: null | { recordsCopied: number; lagSeconds: number; status: string };
+  history: { averageLatencyMs: number; uptimePercent: number };
 }
 interface Health { overall: "ESTABLE" | "DEGRADADO" | "DESCONECTADO"; checkedAt: string; items: HealthItem[] }
 interface DiagnosticIssue {
@@ -15,7 +16,7 @@ interface DiagnosticIssue {
 interface Diagnostic {
   configId: string; status: "SALUDABLE" | "REQUIERE_AJUSTES" | "CORRUPTA";
   checkedAt: string; durationMs: number;
-  summary: { tables: number; rows: number; critical: number; warnings: number; informational: number };
+  summary: { tables: number; rows: number; critical: number; warnings: number; informational: number; readRowsPerSecond?: number };
   issues: DiagnosticIssue[];
 }
 
@@ -82,6 +83,10 @@ export default function HealthMonitor() {
             <div><div className="text-xs text-zinc-600">Registros copiados</div><div className="mt-1 font-medium tabular-nums text-zinc-200">{item.replication.recordsCopied.toLocaleString()}</div></div>
             <div><div className="text-xs text-zinc-600">Lag</div><div className="mt-1 font-medium tabular-nums text-zinc-200">{item.replication.lagSeconds}s</div></div>
           </div>}
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="rounded-button border border-line bg-[#0D0D0D] p-3"><div className="text-xs text-zinc-600">Disponibilidad 24 h</div><div className="mt-1 font-medium text-emerald-400">{item.history.uptimePercent}%</div></div>
+            <div className="rounded-button border border-line bg-[#0D0D0D] p-3"><div className="text-xs text-zinc-600">Latencia media</div><div className="mt-1 font-medium text-blue-300">{item.history.averageLatencyMs} ms</div></div>
+          </div>
           <div className="mt-4 flex gap-2">
             <button disabled={diagnosing === item.configId} className="btn-secondary flex flex-1 items-center justify-center gap-2" onClick={() => diagnose(item.configId)}>
               <ScanSearch size={16} />{diagnosing === item.configId ? "Analizando..." : diagnostic ? "Repetir diagnóstico" : "Diagnóstico profundo"}
@@ -106,6 +111,7 @@ function DiagnosticPanel({ diagnostic }: { diagnostic: Diagnostic }) {
     <div className="mt-3 grid grid-cols-4 gap-2 text-center">
       <Metric label="Tablas" value={diagnostic.summary.tables} /><Metric label="Registros" value={diagnostic.summary.rows} /><Metric label="Críticos" value={diagnostic.summary.critical} danger /><Metric label="Avisos" value={diagnostic.summary.warnings} />
     </div>
+    {diagnostic.summary.readRowsPerSecond !== undefined && <p className="mt-3 text-xs text-zinc-500">Lectura estimada: <span className="text-blue-300">{diagnostic.summary.readRowsPerSecond.toLocaleString()} filas/s</span></p>}
     <div className="mt-3 max-h-72 space-y-2 overflow-y-auto">
       {diagnostic.issues.length ? diagnostic.issues.map((issue, index) => <div key={`${issue.code}-${index}`} className="rounded-button border border-line bg-[#0D0D0D] p-3">
         <div className="flex items-start gap-2"><span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${issue.severity === "critical" ? "bg-red-500" : issue.severity === "warning" ? "bg-amber-400" : "bg-blue-400"}`} /><div><p className="text-sm text-zinc-300">{issue.table && <span className="mr-2 font-mono text-blue-300">{issue.table}</span>}{issue.message}</p><p className="mt-1 text-xs leading-5 text-zinc-600">{issue.recommendation}</p></div></div>

@@ -29,6 +29,61 @@ export async function extractTableData(
   });
 }
 
+export async function compareSchemas(sourceConfigId: string, destinationConfigId: string, userId: string) {
+  const [source, destination] = await Promise.all([
+    extractSchema(sourceConfigId, userId),
+    extractSchema(destinationConfigId, userId)
+  ]);
+  const destinationMap = new Map(destination.map((table) => [table.name, table]));
+  return source.map((sourceTable) => {
+    const destinationTable = destinationMap.get(sourceTable.name);
+    if (!destinationTable) return { table: sourceTable.name, status: "missing", missingColumns: sourceTable.columns.map((column) => column.name), extraColumns: [], typeDifferences: [] };
+    const sourceColumns = new Map(sourceTable.columns.map((column) => [column.name, column]));
+    const destinationColumns = new Map(destinationTable.columns.map((column) => [column.name, column]));
+    return {
+      table: sourceTable.name,
+      status: "present",
+      missingColumns: sourceTable.columns.filter((column) => !destinationColumns.has(column.name)).map((column) => column.name),
+      extraColumns: destinationTable.columns.filter((column) => !sourceColumns.has(column.name)).map((column) => column.name),
+      typeDifferences: sourceTable.columns.flatMap((column) => {
+        const target = destinationColumns.get(column.name);
+        return target && target.dataType.toLowerCase() !== column.dataType.toLowerCase()
+          ? [{ column: column.name, sourceType: column.dataType, destinationType: target.dataType }]
+          : [];
+      })
+    };
+  });
+}
+
+export async function tableStatistics(configId: string, userId: string, table: string) {
+  const config = await getConfiguration(configId, userId);
+  if (!config) throw new Error("Configuración no encontrada");
+  return withAdapter(config, async (adapter) => {
+    const schema = await adapter.getTableSchema(table);
+    const totalRows = await adapter.countRows(table);
+    const sample = await adapter.readBatch(table, 0, Math.min(5000, totalRows));
+    return {
+      table,
+      totalRows,
+      sampleRows: sample.length,
+      columns: schema.columns.map((column) => {
+        const values = sample.map((row) => row[column.name]);
+        const nonNull = values.filter((value) => value !== null && value !== undefined);
+        const comparable = nonNull.filter((value): value is number | string => typeof value === "number" || typeof value === "string");
+        const unique = new Set(nonNull.map((value) => typeof value === "object" ? JSON.stringify(value) : String(value))).size;
+        return {
+          name: column.name,
+          dataType: column.dataType,
+          nulls: values.length - nonNull.length,
+          unique,
+          min: comparable.length ? comparable.reduce((minimum, value) => value < minimum ? value : minimum) : null,
+          max: comparable.length ? comparable.reduce((maximum, value) => value > maximum ? value : maximum) : null
+        };
+      })
+    };
+  });
+}
+
 export async function extractDatabaseData(configId: string, userId: string) {
   const config = await getConfiguration(configId, userId);
   if (!config) throw new Error("Configuración no encontrada");
@@ -112,4 +167,11 @@ export function schemaToMarkdown(databaseName: string, tables: Awaited<ReturnTyp
     return `## ${table.name}\n\n| Columna | Tipo | Nullable | PK | FK |\n|---|---|---|---|---|\n${rows}`;
   });
   return `# Documentación de esquema: ${databaseName}\n\nGenerado: ${new Date().toISOString()}\n\n${sections.join("\n\n")}\n`;
+}
+
+export function schemaToHtml(databaseName: string, tables: Awaited<ReturnType<typeof extractSchema>>): string {
+  const body = tables.map((table) => `<section><h2>${escapeXml(table.name)}</h2><table><thead><tr><th>Columna</th><th>Tipo</th><th>Nullable</th><th>Claves</th></tr></thead><tbody>${table.columns.map((column) =>
+    `<tr><td>${escapeXml(column.name)}</td><td>${escapeXml(column.dataType)}</td><td>${column.nullable ? "Sí" : "No"}</td><td>${column.primaryKey ? "PK " : ""}${column.foreignKey ? "FK" : ""}</td></tr>`
+  ).join("")}</tbody></table></section>`).join("");
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${escapeXml(databaseName)}</title><style>body{font-family:Arial,sans-serif;margin:32px;color:#222}table{border-collapse:collapse;width:100%;margin-bottom:28px}th,td{border:1px solid #ccc;padding:8px;text-align:left}th{background:#eef3f8}@media print{body{margin:12mm}}</style></head><body><h1>${escapeXml(databaseName)}</h1><p>Generado: ${new Date().toLocaleString("es")}</p>${body}</body></html>`;
 }

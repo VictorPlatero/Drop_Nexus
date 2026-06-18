@@ -47,6 +47,14 @@ export class SQLServerAdapter implements DatabaseAdapter {
   }
   previewCreateTable(table: string, columns: ColumnSchema[]): string { return buildCreateTableSql(table, columns, "sqlserver"); }
   async createTable(table: string, columns: ColumnSchema[]): Promise<void> { await this.db().request().query(this.previewCreateTable(table, columns)); }
+  async countRows(table: string): Promise<number> {
+    const result = await this.db().request().query(`SELECT COUNT_BIG(*) count FROM ${qualifiedIdentifier(table, "sqlserver")}`);
+    return Number(result.recordset[0].count);
+  }
+  async clearTable(table: string): Promise<void> {
+    try { await this.db().request().query(`TRUNCATE TABLE ${qualifiedIdentifier(table, "sqlserver")}`); }
+    catch { await this.db().request().query(`DELETE FROM ${qualifiedIdentifier(table, "sqlserver")}`); }
+  }
   async readBatch(table: string, offset: number, limit: number): Promise<Record<string, unknown>[]> {
     const result = await this.db().request().input("offset", offset).input("limit", limit).query(`SELECT * FROM ${qualifiedIdentifier(table, "sqlserver")} ORDER BY (SELECT NULL) OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY`);
     return result.recordset;
@@ -63,6 +71,29 @@ export class SQLServerAdapter implements DatabaseAdapter {
       }
       await transaction.commit(); return rows.length;
     } catch (error) { await transaction.rollback(); throw error; }
+  }
+  async upsertBatch(table: string, rows: Record<string, unknown>[], keyColumns: string[]): Promise<number> {
+    if (!rows.length) return 0;
+    if (!keyColumns.length) throw new Error("UPsert requiere una clave primaria");
+    const columns = Object.keys(rows[0]!);
+    const transaction = new sql.Transaction(this.db());
+    await transaction.begin();
+    try {
+      for (const row of rows) {
+        const request = new sql.Request(transaction);
+        columns.forEach((column, index) => request.input(`p${index}`, row[column] as never));
+        const source = columns.map((column, index) => `@p${index} AS ${qualifiedIdentifier(column, "sqlserver")}`).join(",");
+        const match = keyColumns.map((column) => `target.${qualifiedIdentifier(column, "sqlserver")}=source.${qualifiedIdentifier(column, "sqlserver")}`).join(" AND ");
+        const updates = columns.filter((column) => !keyColumns.includes(column))
+          .map((column) => `target.${qualifiedIdentifier(column, "sqlserver")}=source.${qualifiedIdentifier(column, "sqlserver")}`).join(",");
+        await request.query(`MERGE ${qualifiedIdentifier(table, "sqlserver")} AS target USING (SELECT ${source}) AS source ON ${match} ${updates ? `WHEN MATCHED THEN UPDATE SET ${updates}` : ""} WHEN NOT MATCHED THEN INSERT (${columns.map((column) => qualifiedIdentifier(column, "sqlserver")).join(",")}) VALUES (${columns.map((column) => `source.${qualifiedIdentifier(column, "sqlserver")}`).join(",")});`);
+      }
+      await transaction.commit();
+      return rows.length;
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
   }
   async verifyReadPermission(table: string): Promise<void> { await this.db().request().query(`SELECT TOP 0 * FROM ${qualifiedIdentifier(table, "sqlserver")}`); }
   async verifyWritePermission(table: string, exists: boolean): Promise<void> {

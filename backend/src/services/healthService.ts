@@ -4,6 +4,7 @@ import { withAdapter } from "./connectionManager.js";
 import { readCatalog, type FileCatalog } from "./fileCatalog.js";
 
 export async function getHealth(userId: string) {
+  await pool.query("DELETE FROM health_checks WHERE checked_at < now()-interval '7 days'").catch(() => undefined);
   const configs = await listConfigurations(userId, true);
   const replications = await pool.query(`SELECT source_config_id, destination_config_id, records_copied, lag_seconds, status FROM replications WHERE user_id=$1 AND status IN ('starting','running')`, [userId]);
   const checkedAt = new Date().toISOString();
@@ -12,11 +13,25 @@ export async function getHealth(userId: string) {
       ok: false, latencyMs: 5000, error: error instanceof Error ? error.message : "Error"
     }));
     const active = replications.rows.find((row) => row.source_config_id === config.id || row.destination_config_id === config.id);
+    await pool.query(
+      "INSERT INTO health_checks (user_id,config_id,status,latency_ms,error) VALUES ($1,$2,$3,$4,$5)",
+      [userId, config.id, result.ok ? "connected" : "disconnected", result.latencyMs, result.error ?? null]
+    ).catch(() => undefined);
+    const history = await pool.query(
+      `SELECT ROUND(AVG(latency_ms)) average_latency_ms,
+       ROUND(100.0*COUNT(*) FILTER (WHERE status='connected')/GREATEST(COUNT(*),1),1) uptime_percent
+       FROM health_checks WHERE config_id=$1 AND checked_at > now()-interval '24 hours'`,
+      [config.id]
+    );
     return {
       configId: config.id, name: config.name, engine: config.engine,
       status: result.ok ? "connected" : "disconnected", latencyMs: result.latencyMs,
       lastCheck: checkedAt, error: result.error,
-      replication: active ? { recordsCopied: Number(active.records_copied), lagSeconds: active.lag_seconds, status: active.status } : null
+      replication: active ? { recordsCopied: Number(active.records_copied), lagSeconds: active.lag_seconds, status: active.status } : null,
+      history: {
+        averageLatencyMs: Number(history.rows[0]?.average_latency_ms ?? result.latencyMs),
+        uptimePercent: Number(history.rows[0]?.uptime_percent ?? (result.ok ? 100 : 0))
+      }
     };
   }));
   const connected = items.filter((item) => item.status === "connected").length;
@@ -167,6 +182,10 @@ export async function diagnoseConfiguration(configId: string, userId: string) {
       throw new Error("El diagnóstico profundo solo está disponible para archivos importados");
     }
     const catalog = await readCatalog(config.database);
+    const readStarted = performance.now();
+    const sampledRows = catalog.tables.reduce((total, table) => total + Math.min(1000, table.rows.length), 0);
+    const readDuration = Math.max(1, performance.now() - readStarted);
+    const readRowsPerSecond = Math.round(sampledRows / (readDuration / 1000));
     const issues = validateCatalog(catalog);
     const critical = issues.filter((issue) => issue.severity === "critical").length;
     const warnings = issues.filter((issue) => issue.severity === "warning").length;
@@ -176,7 +195,7 @@ export async function diagnoseConfiguration(configId: string, userId: string) {
       status: critical ? "CORRUPTA" : warnings ? "REQUIERE_AJUSTES" : "SALUDABLE",
       checkedAt: new Date().toISOString(),
       durationMs: Math.round(performance.now() - startedAt),
-      summary: { tables: catalog.tables.length, rows: totalRows, critical, warnings, informational: issues.length - critical - warnings },
+      summary: { tables: catalog.tables.length, rows: totalRows, critical, warnings, informational: issues.length - critical - warnings, readRowsPerSecond },
       issues
     };
   } catch (error) {
@@ -194,4 +213,14 @@ export async function diagnoseConfiguration(configId: string, userId: string) {
       }]
     };
   }
+}
+
+export async function getHealthHistory(configId: string, userId: string) {
+  if (!await getConfiguration(configId, userId)) throw new Error("Base de datos no encontrada");
+  return (await pool.query(
+    `SELECT status,latency_ms,read_rows_per_second,error,checked_at
+     FROM health_checks WHERE config_id=$1 AND checked_at > now()-interval '24 hours'
+     ORDER BY checked_at ASC LIMIT 500`,
+    [configId]
+  )).rows;
 }

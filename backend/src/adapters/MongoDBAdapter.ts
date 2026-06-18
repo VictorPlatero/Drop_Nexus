@@ -68,6 +68,8 @@ export class MongoDBAdapter implements DatabaseAdapter {
     const command = JSON.parse(this.previewCreateTable(table, columns)) as Record<string, unknown>;
     await this.db().command(command);
   }
+  async countRows(table: string): Promise<number> { return this.db().collection(table).estimatedDocumentCount(); }
+  async clearTable(table: string): Promise<void> { await this.db().collection(table).deleteMany({}); }
   async readBatch(table: string, offset: number, limit: number): Promise<Record<string, unknown>[]> {
     return this.db().collection(table).find({}).skip(offset).limit(limit).toArray();
   }
@@ -75,6 +77,18 @@ export class MongoDBAdapter implements DatabaseAdapter {
     if (!rows.length) return 0;
     const normalized = rows.map(({ _id, ...row }) => row);
     return (await this.db().collection(table).insertMany(normalized, { ordered: true })).insertedCount;
+  }
+  async upsertBatch(table: string, rows: Record<string, unknown>[], keyColumns: string[]): Promise<number> {
+    if (!rows.length) return 0;
+    if (!keyColumns.length) throw new Error("UPsert requiere una clave primaria");
+    await this.db().collection(table).bulkWrite(rows.map((row) => ({
+      updateOne: {
+        filter: Object.fromEntries(keyColumns.map((column) => [column, row[column]])),
+        update: { $set: Object.fromEntries(Object.entries(row).filter(([column]) => column !== "_id")) },
+        upsert: true
+      }
+    })), { ordered: false });
+    return rows.length;
   }
   async verifyReadPermission(table: string): Promise<void> { await this.db().collection(table).findOne({}); }
   async verifyWritePermission(_table: string, _exists: boolean): Promise<void> { await this.db().command({ connectionStatus: 1, showPrivileges: false }); }

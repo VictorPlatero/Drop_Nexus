@@ -1,24 +1,19 @@
-import { useEffect, useState } from "react";
-import { Database, Play, Plus, RefreshCw, Square, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight, Database, Download, Pause, Play, Plus, RefreshCw, RotateCcw, X } from "lucide-react";
 import { api, uploadDatabase, type DbConfiguration } from "../services/api";
 import ConfigurationForm, { type ConfigurationPayload } from "./ConfigurationForm";
 import ReplicationConfirmModal from "./ReplicationConfirmModal";
 
+interface Column { name: string; dataType: string; nullable: boolean; primaryKey: boolean }
+interface TableSchema { name: string; columns: Column[] }
+interface TableChoice { sourceTable: string; destinationTable: string; selected: boolean }
+interface ColumnMapping { source: string; destination: string; transform: "none" | "string" | "number" | "boolean" | "date" | "json" }
 interface Replication {
-  id: string;
-  source_table: string;
-  destination_table: string;
-  status: string;
-  records_copied: number;
-  last_error?: string;
-  created_at: string;
-}
-
-interface Selection {
-  sourceConfigId: string;
-  destinationConfigId: string;
-  sourceTable: string;
-  destinationTable: string;
+  id: string; group_id: string; source_table: string; destination_table: string; status: string;
+  records_copied: number; failed_records: number; total_records?: number; current_offset: number;
+  current_batch: number; speed_rows_per_second: number; retry_count: number; progress_percent: number;
+  last_error?: string; error_details?: Array<{ offset: number; count: number; message: string }>;
+  created_at: string; next_run_at?: string;
 }
 
 interface Props {
@@ -27,291 +22,258 @@ interface Props {
   notify(type: "success" | "error", message: string): void;
 }
 
-const initial: Selection = {
-  sourceConfigId: "",
-  destinationConfigId: "",
-  sourceTable: "",
-  destinationTable: ""
-};
+const transforms = [
+  ["none", "Sin conversión"], ["string", "Texto"], ["number", "Número"],
+  ["boolean", "Booleano"], ["date", "Fecha"], ["json", "JSON"]
+] as const;
 
 export default function ReplicationPanel({ configurations, refreshConfigurations, notify }: Props) {
-  const [selection, setSelection] = useState(initial);
-  const [sourceTables, setSourceTables] = useState<string[]>([]);
-  const [destinationTables, setDestinationTables] = useState<string[]>([]);
+  const [step, setStep] = useState(1);
+  const [sourceConfigId, setSourceConfigId] = useState("");
+  const [destinationConfigId, setDestinationConfigId] = useState("");
+  const [sourceSchemas, setSourceSchemas] = useState<TableSchema[]>([]);
+  const [destinationSchemas, setDestinationSchemas] = useState<TableSchema[]>([]);
+  const [tables, setTables] = useState<TableChoice[]>([]);
+  const [mappings, setMappings] = useState<Record<string, ColumnMapping[]>>({});
+  const [writeMode, setWriteMode] = useState<"insert" | "upsert" | "replace" | "truncate">("insert");
+  const [batchSize, setBatchSize] = useState(1000);
+  const [maxRetries, setMaxRetries] = useState(3);
+  const [scheduleMinutes, setScheduleMinutes] = useState(0);
+  const [incremental, setIncremental] = useState(true);
   const [replications, setReplications] = useState<Replication[]>([]);
-  const [modalSql, setModalSql] = useState("");
+  const [preview, setPreview] = useState<{ totalRecords: number; warnings: string[]; createStatement?: string | null }>();
   const [busy, setBusy] = useState(false);
   const [addingFor, setAddingFor] = useState<"source" | "destination" | null>(null);
-  const [loadingTables, setLoadingTables] = useState<"source" | "destination" | null>(null);
-  const [newDestination, setNewDestination] = useState(false);
+  const [modalSql, setModalSql] = useState("");
+
+  const selectedTables = tables.filter((table) => table.selected);
+  const sourceConfig = configurations.find((config) => config.id === sourceConfigId);
+  const destinationConfig = configurations.find((config) => config.id === destinationConfigId);
 
   const loadReplications = () => api<{ replications: Replication[] }>("/replications")
-    .then((result) => setReplications(result.replications))
-    .catch(() => undefined);
-
+    .then((result) => setReplications(result.replications)).catch(() => undefined);
   useEffect(() => {
     void loadReplications();
-    const timer = setInterval(loadReplications, 5000);
+    const timer = setInterval(loadReplications, 3000);
     return () => clearInterval(timer);
   }, []);
 
-  const loadTables = async (kind: "source" | "destination", configId: string) => {
-    setSelection((current) => ({
-      ...current,
-      [`${kind}ConfigId`]: configId,
-      [`${kind}Table`]: ""
-    }));
-    if (!configId) {
-      kind === "source" ? setSourceTables([]) : setDestinationTables([]);
+  const loadSchemas = async (kind: "source" | "destination", id: string) => {
+    kind === "source" ? setSourceConfigId(id) : setDestinationConfigId(id);
+    if (!id) {
+      kind === "source" ? setSourceSchemas([]) : setDestinationSchemas([]);
       return;
     }
-    setLoadingTables(kind);
     try {
-      const result = await api<{ tables: string[] }>(`/configurations/${configId}/tables`);
+      const result = await api<{ tables: TableSchema[] }>(`/schema/${id}`);
       if (kind === "source") {
-        setSourceTables(result.tables);
-        setSelection((current) => ({ ...current, sourceTable: result.tables[0] ?? "" }));
-      } else {
-        setDestinationTables(result.tables);
-        setNewDestination(result.tables.length === 0);
-        setSelection((current) => ({ ...current, destinationTable: result.tables[0] ?? "" }));
-      }
-      if (!result.tables.length) {
-        notify("error", `El archivo no contiene ${kind === "source" ? "tablas o colecciones" : "estructuras existentes"}`);
-      }
+        setSourceSchemas(result.tables);
+        setTables(result.tables.map((table) => ({ sourceTable: table.name, destinationTable: table.name, selected: false })));
+        setMappings(Object.fromEntries(result.tables.map((table) => [table.name, table.columns.map((column) => ({
+          source: column.name, destination: column.name, transform: "none" as const
+        }))])));
+      } else setDestinationSchemas(result.tables);
     } catch (error) {
-      notify("error", error instanceof Error ? error.message : "No se pudieron cargar las tablas");
-    } finally {
-      setLoadingTables(null);
+      notify("error", error instanceof Error ? error.message : "No se pudo leer el esquema");
     }
   };
 
-  const createConnection = async (payload: ConfigurationPayload) => {
-    if (!addingFor) return;
-    const kind = addingFor;
-    try {
-      const { databaseFile, ...configuration } = payload;
-      if (!databaseFile) throw new Error("Selecciona un archivo de base de datos");
-      const uploaded = await uploadDatabase(configuration.engine, databaseFile);
-      configuration.database = uploaded.database;
-      configuration.options = {
-        ...configuration.options,
-        storageMode: "fileCatalog",
-        originalFileName: uploaded.originalName,
-        uploadedFileSize: uploaded.size,
-        tableCount: uploaded.tableCount
-      };
-      const created = await api<{ configuration: DbConfiguration }>("/configurations", {
-        method: "POST",
-        body: JSON.stringify(configuration)
-      });
-      await refreshConfigurations();
-      await loadTables(kind, created.configuration.id);
-      setAddingFor(null);
-      notify("success", `${configuration.name} agregada y seleccionada`);
-    } catch (error) {
-      notify("error", error instanceof Error ? error.message : "No se pudo agregar la base de datos");
-      throw error;
-    }
-  };
+  const payload = (createDestination = true) => ({
+    sourceConfigId,
+    destinationConfigId,
+    tables: selectedTables.map((table) => ({
+      sourceTable: table.sourceTable,
+      destinationTable: table.destinationTable,
+      columnMappings: mappings[table.sourceTable] ?? []
+    })),
+    writeMode,
+    batchSize,
+    maxRetries,
+    scheduleMinutes: scheduleMinutes || undefined,
+    incremental,
+    createDestination
+  });
 
-  const payload = (createDestination: boolean) => ({ ...selection, createDestination });
-
-  const start = async (createDestination = false) => {
-    if (!selection.sourceConfigId || !selection.destinationConfigId || !selection.sourceTable || !selection.destinationTable) {
-      notify("error", "Completa origen y destino");
+  const validate = async () => {
+    if (!sourceConfigId || !destinationConfigId || !selectedTables.length) {
+      notify("error", "Selecciona origen, destino y al menos una tabla");
       return;
     }
     setBusy(true);
     try {
-      if (!createDestination) {
-        const preview = await api<{ requiresCreation: boolean; createStatement: string | null }>("/replications/preview", {
-          method: "POST",
-          body: JSON.stringify(payload(false))
-        });
-        if (preview.requiresCreation) {
-          setModalSql(preview.createStatement ?? "");
-          return;
-        }
-      }
-      await api("/replications/start", {
-        method: "POST",
-        body: JSON.stringify(payload(createDestination))
+      const result = await api<{ totalRecords: number; warnings: string[]; requiresCreation: boolean; createStatement?: string | null }>("/replications/preview", {
+        method: "POST", body: JSON.stringify(payload(false))
       });
+      setPreview(result);
+      setStep(4);
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "No se pudo validar");
+    } finally { setBusy(false); }
+  };
+
+  const start = async (createDestination = true) => {
+    setBusy(true);
+    try {
+      if (!preview) {
+        await validate();
+        return;
+      }
+      if (preview.createStatement && !createDestination) {
+        setModalSql(preview.createStatement);
+        return;
+      }
+      await api("/replications/start", { method: "POST", body: JSON.stringify(payload(createDestination)) });
       setModalSql("");
-      notify("success", "Replicación iniciada");
+      notify("success", scheduleMinutes ? "Replicación programada" : "Replicación iniciada");
+      setStep(1);
       await loadReplications();
     } catch (error) {
       notify("error", error instanceof Error ? error.message : "No se pudo iniciar");
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
-  const stop = async (id: string) => {
+  const action = async (id: string, operation: "stop" | "resume" | "retry") => {
     try {
-      await api(`/replications/${id}/stop`, { method: "POST" });
-      notify("success", "Replicación detenida");
+      await api(`/replications/${id}/${operation}`, { method: "POST" });
+      notify("success", operation === "stop" ? "Replicación detenida" : "Replicación reiniciada");
       await loadReplications();
-    } catch (error) {
-      notify("error", error instanceof Error ? error.message : "No se pudo detener");
-    }
+    } catch (error) { notify("error", error instanceof Error ? error.message : "No se pudo completar la acción"); }
   };
 
-  const connectionControl = (kind: "source" | "destination") => {
-    const configId = kind === "source" ? selection.sourceConfigId : selection.destinationConfigId;
-    return <div>
-      <label>Base importada</label>
-      <select value={configId} onChange={(event) => loadTables(kind, event.target.value)}>
-        <option value="">Seleccionar una base...</option>
-        {configurations.map((configuration) => (
-          <option key={configuration.id} value={configuration.id}>
-            {configuration.name} · {configuration.engine}
-          </option>
-        ))}
-      </select>
-      <div className="my-3 flex items-center gap-3 text-xs text-zinc-600">
-        <span className="h-px flex-1 bg-line" />
-        <span>o agrega otra base</span>
-        <span className="h-px flex-1 bg-line" />
-      </div>
-      <button
-        type="button"
-        className="btn-secondary flex w-full items-center justify-center gap-2"
-        disabled={configurations.length >= 10}
-        onClick={() => setAddingFor(kind)}
-      >
-        <Plus size={16} />
-        Agregar base de datos
-      </button>
-      <p className="mt-2 text-xs leading-5 text-zinc-600">
-        PostgreSQL, MySQL, MariaDB, SQL Server, Oracle, MongoDB o archivo SQLite.
-      </p>
-      {configurations.length >= 10 && <p className="mt-2 text-xs text-amber-400">Alcanzaste el límite de 10 bases importadas.</p>}
-    </div>;
+  const downloadReport = async (job: Replication) => {
+    const report = await api<Record<string, unknown>>(`/replications/${job.id}/report`);
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `replicacion-${job.id}.json`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  const createConnection = async (configurationPayload: ConfigurationPayload) => {
+    if (!addingFor) return;
+    const kind = addingFor;
+    const { databaseFile, ...configuration } = configurationPayload;
+    if (!databaseFile) throw new Error("Selecciona un archivo de base de datos");
+    const uploaded = await uploadDatabase(configuration.engine, databaseFile);
+    configuration.database = uploaded.database;
+    configuration.options = { ...configuration.options, storageMode: "fileCatalog", originalFileName: uploaded.originalName, uploadedFileSize: uploaded.size, tableCount: uploaded.tableCount };
+    const created = await api<{ configuration: DbConfiguration }>("/configurations", { method: "POST", body: JSON.stringify(configuration) });
+    await refreshConfigurations();
+    await loadSchemas(kind, created.configuration.id);
+    setAddingFor(null);
   };
 
   return <div>
     <div className="mb-6">
       <h1 className="text-2xl font-semibold text-white">Replicador</h1>
-      <p className="mt-1 text-sm text-zinc-500">Conecta bases relacionales y no relacionales como origen o destino.</p>
+      <p className="mt-1 text-sm text-zinc-500">Configura, valida, ejecuta y reanuda flujos entre motores.</p>
     </div>
+
+    <div className="mb-5 grid grid-cols-4 gap-2">
+      {["Conexiones", "Tablas", "Mapeo", "Validación"].map((label, index) => <button key={label} onClick={() => index + 1 < step && setStep(index + 1)}
+        className={`rounded-button border px-3 py-2 text-xs ${step === index + 1 ? "border-blue-600 bg-blue-950 text-blue-300" : index + 1 < step ? "border-emerald-900 text-emerald-400" : "border-line text-zinc-600"}`}>
+        {index + 1}. {label}
+      </button>)}
+    </div>
+
     <div className="card">
-      <div className="grid gap-5 lg:grid-cols-[1fr_auto_1fr]">
-        <div>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">Origen</h2>
-          <div className="space-y-4">
-            {connectionControl("source")}
-            <div>
-              <label>Tabla o colección</label>
-              <select disabled={!selection.sourceConfigId || loadingTables === "source"} value={selection.sourceTable} onChange={(event) => setSelection({ ...selection, sourceTable: event.target.value })}>
-                <option value="">{loadingTables === "source" ? "Cargando estructuras..." : "Seleccionar tabla o colección..."}</option>
-                {sourceTables.map((table) => <option key={table}>{table}</option>)}
-              </select>
-              {selection.sourceConfigId && !loadingTables && <p className="mt-2 text-xs text-zinc-600">{sourceTables.length} estructura(s) encontradas en el archivo.</p>}
-            </div>
-          </div>
+      {step === 1 && <div>
+        <h2 className="mb-5 font-medium text-white">Selecciona las bases</h2>
+        <div className="grid gap-5 md:grid-cols-2">
+          <ConnectionPicker label="Origen" value={sourceConfigId} configurations={configurations} onChange={(id) => loadSchemas("source", id)} onAdd={() => setAddingFor("source")} />
+          <ConnectionPicker label="Destino" value={destinationConfigId} configurations={configurations} onChange={(id) => loadSchemas("destination", id)} onAdd={() => setAddingFor("destination")} />
         </div>
-        <div className="hidden items-center pt-8 text-zinc-700 lg:flex"><RefreshCw size={24} /></div>
-        <div>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-400">Destino</h2>
-          <div className="space-y-4">
-            {connectionControl("destination")}
-            <div>
-              <label>Tabla o colección destino</label>
-              {!newDestination ? <select
-                value={selection.destinationTable}
-                disabled={!selection.destinationConfigId || loadingTables === "destination"}
-                onChange={(event) => {
-                  if (event.target.value === "__new__") {
-                    setNewDestination(true);
-                    setSelection({ ...selection, destinationTable: "" });
-                  } else {
-                    setSelection({ ...selection, destinationTable: event.target.value });
-                  }
-                }}
-              >
-                <option value="">{loadingTables === "destination" ? "Cargando estructuras..." : "Seleccionar tabla o colección..."}</option>
-                {destinationTables.map((table) => <option key={table}>{table}</option>)}
-                <option value="__new__">+ Crear nueva tabla o colección</option>
-              </select> : <div className="flex gap-2">
-                <input
-                  value={selection.destinationTable}
-                  disabled={!selection.destinationConfigId}
-                  onChange={(event) => setSelection({ ...selection, destinationTable: event.target.value })}
-                  placeholder="Nombre de la nueva tabla o colección"
-                />
-                {destinationTables.length > 0 && <button type="button" className="btn-secondary whitespace-nowrap" onClick={() => {
-                  setNewDestination(false);
-                  setSelection({ ...selection, destinationTable: destinationTables[0] ?? "" });
-                }}>Usar existente</button>}
-              </div>}
-              {selection.destinationConfigId && !loadingTables && <p className="mt-2 text-xs text-zinc-600">{destinationTables.length} estructura(s) encontradas en el archivo destino.</p>}
-            </div>
-          </div>
+      </div>}
+
+      {step === 2 && <div>
+        <div className="mb-4 flex items-center justify-between"><div><h2 className="font-medium text-white">Tablas a replicar</h2><p className="mt-1 text-xs text-zinc-600">Puedes incluir varias tablas en el mismo grupo.</p></div>
+          <button className="btn-secondary text-xs" onClick={() => setTables(tables.map((table) => ({ ...table, selected: true })))}>Seleccionar todas</button></div>
+        <div className="max-h-96 space-y-2 overflow-y-auto">
+          {tables.map((table) => <div key={table.sourceTable} className="grid items-center gap-3 rounded-button border border-line bg-[#0D0D0D] p-3 md:grid-cols-[auto_1fr_1fr]">
+            <input type="checkbox" checked={table.selected} onChange={(event) => setTables(tables.map((item) => item.sourceTable === table.sourceTable ? { ...item, selected: event.target.checked } : item))} />
+            <span className="text-sm text-zinc-300">{table.sourceTable}</span>
+            <input value={table.destinationTable} onChange={(event) => setTables(tables.map((item) => item.sourceTable === table.sourceTable ? { ...item, destinationTable: event.target.value } : item))} />
+          </div>)}
         </div>
-      </div>
-      <div className="mt-6 flex justify-end">
-        <button
-          disabled={busy || !selection.sourceConfigId || !selection.destinationConfigId || !selection.sourceTable || !selection.destinationTable}
-          className="btn-primary flex items-center gap-2"
-          onClick={() => start(false)}
-        >
-          <Play size={17} />{busy ? "Validando..." : "Iniciar replicación"}
-        </button>
+      </div>}
+
+      {step === 3 && <MappingEditor tables={selectedTables} schemas={sourceSchemas} destinationSchemas={destinationSchemas} mappings={mappings} setMappings={setMappings} />}
+
+      {step === 4 && <div>
+        <h2 className="font-medium text-white">Estrategia y validación final</h2>
+        <div className="mt-5 grid gap-4 md:grid-cols-4">
+          <div><label>Modo de escritura</label><select value={writeMode} onChange={(event) => setWriteMode(event.target.value as typeof writeMode)}>
+            <option value="insert">Solo insertar</option><option value="upsert">Actualizar o insertar</option>
+            <option value="replace">Reemplazar contenido</option><option value="truncate">Vaciar y recargar</option>
+          </select></div>
+          <div><label>Tamaño de lote</label><input type="number" min={100} max={10000} value={batchSize} onChange={(event) => setBatchSize(Number(event.target.value))} /></div>
+          <div><label>Reintentos</label><input type="number" min={0} max={10} value={maxRetries} onChange={(event) => setMaxRetries(Number(event.target.value))} /></div>
+          <div><label>Repetir cada</label><select value={scheduleMinutes} onChange={(event) => setScheduleMinutes(Number(event.target.value))}>
+            <option value={0}>Solo una vez</option><option value={60}>Cada hora</option><option value={360}>Cada 6 horas</option><option value={1440}>Diariamente</option>
+          </select></div>
+        </div>
+        {scheduleMinutes > 0 && <label className="mt-4 flex items-center gap-3 rounded-button border border-line bg-[#0D0D0D] p-3 text-sm text-zinc-300"><input type="checkbox" checked={incremental} onChange={(event) => setIncremental(event.target.checked)} />Continuar desde el último registro procesado en cada ejecución</label>}
+        {preview && <div className="mt-5 rounded-button border border-line bg-[#0D0D0D] p-4">
+          <div className="grid gap-3 sm:grid-cols-3"><Metric label="Tablas" value={selectedTables.length} /><Metric label="Registros estimados" value={preview.totalRecords} /><Metric label="Avisos" value={preview.warnings.length} /></div>
+          {preview.warnings.length > 0 && <ul className="mt-4 space-y-1 text-xs text-amber-400">{preview.warnings.map((warning) => <li key={warning}>• {warning}</li>)}</ul>}
+        </div>}
+      </div>}
+
+      <div className="mt-6 flex justify-between border-t border-line pt-5">
+        <button className="btn-secondary flex items-center gap-2" disabled={step === 1} onClick={() => setStep(step - 1)}><ChevronLeft size={16} />Anterior</button>
+        {step < 3 ? <button className="btn-primary flex items-center gap-2" disabled={step === 1 ? !sourceConfigId || !destinationConfigId : !selectedTables.length} onClick={() => setStep(step + 1)}>Siguiente<ChevronRight size={16} /></button>
+          : step === 3 ? <button className="btn-primary flex items-center gap-2" onClick={validate} disabled={busy}>{busy ? "Validando..." : "Validar flujo"}<RefreshCw size={16} /></button>
+            : <button className="btn-primary flex items-center gap-2" onClick={() => start(!preview?.createStatement)} disabled={busy}><Play size={16} />{scheduleMinutes ? "Programar" : "Iniciar replicación"}</button>}
       </div>
     </div>
 
-    <div className="mt-6">
-      <h2 className="mb-3 font-medium text-white">Actividad reciente</h2>
-      <div className="table-shell">
-        <table>
-          <thead><tr><th>Flujo</th><th>Estado</th><th>Registros</th><th>Inicio</th><th></th></tr></thead>
-          <tbody>
-            {replications.length ? replications.map((replication) => <tr key={replication.id}>
-              <td>
-                <span className="text-zinc-300">{replication.source_table}</span>
-                <span className="mx-2 text-zinc-700">→</span>
-                <span className="text-zinc-300">{replication.destination_table}</span>
-                {replication.last_error && <div className="mt-1 max-w-md truncate text-xs text-red-400">{replication.last_error}</div>}
-              </td>
-              <td><Status status={replication.status} /></td>
-              <td className="tabular-nums text-zinc-300">{Number(replication.records_copied).toLocaleString()}</td>
-              <td className="text-zinc-500">{new Date(replication.created_at).toLocaleString()}</td>
-              <td>{["running", "starting"].includes(replication.status) && <button className="btn-danger flex items-center gap-2" onClick={() => stop(replication.id)}><Square size={13} />Detener</button>}</td>
-            </tr>) : <tr><td colSpan={5} className="py-10 text-center text-zinc-600">Sin replicaciones todavía</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <ActivityTable replications={replications} action={action} downloadReport={downloadReport} />
 
     {modalSql && <ReplicationConfirmModal sql={modalSql} busy={busy} onCancel={() => setModalSql("")} onConfirm={() => start(true)} />}
-
-    {addingFor && <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 px-4 py-8">
-      <div className="mx-auto w-full max-w-3xl">
-        <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-button bg-blue-950 text-blue-400"><Database size={20} /></div>
-            <div>
-              <h2 className="font-semibold text-white">Agregar base como {addingFor === "source" ? "origen" : "destino"}</h2>
-              <p className="text-xs text-zinc-500">Elige el modelo y sube su archivo desde tu computadora.</p>
-            </div>
-          </div>
-          <button className="text-zinc-500 hover:text-white" onClick={() => setAddingFor(null)} aria-label="Cerrar"><X size={20} /></button>
-        </div>
-        <ConfigurationForm onSubmit={createConnection} onCancel={() => setAddingFor(null)} />
-      </div>
-    </div>}
+    {addingFor && <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 px-4 py-8"><div className="mx-auto max-w-3xl">
+      <div className="mb-3 flex justify-between"><h2 className="font-semibold text-white">Agregar base como {addingFor === "source" ? "origen" : "destino"}</h2><button onClick={() => setAddingFor(null)}><X /></button></div>
+      <ConfigurationForm onSubmit={createConnection} onCancel={() => setAddingFor(null)} />
+    </div></div>}
   </div>;
 }
 
+function ConnectionPicker({ label, value, configurations, onChange, onAdd }: { label: string; value: string; configurations: DbConfiguration[]; onChange(id: string): void; onAdd(): void }) {
+  return <div><label>{label}</label><select value={value} onChange={(event) => onChange(event.target.value)}><option value="">Seleccionar...</option>{configurations.map((config) => <option key={config.id} value={config.id}>{config.name} · {config.engine}</option>)}</select>
+    <button className="btn-secondary mt-3 flex w-full items-center justify-center gap-2" onClick={onAdd}><Plus size={15} />Agregar base</button></div>;
+}
+
+function MappingEditor({ tables, schemas, destinationSchemas, mappings, setMappings }: { tables: TableChoice[]; schemas: TableSchema[]; destinationSchemas: TableSchema[]; mappings: Record<string, ColumnMapping[]>; setMappings(value: Record<string, ColumnMapping[]>): void }) {
+  const [active, setActive] = useState(tables[0]?.sourceTable ?? "");
+  const rows = mappings[active] ?? [];
+  const destination = destinationSchemas.find((table) => table.name === tables.find((table) => table.sourceTable === active)?.destinationTable);
+  return <div><div className="mb-4 flex flex-wrap gap-2">{tables.map((table) => <button key={table.sourceTable} className={active === table.sourceTable ? "btn-primary" : "btn-secondary"} onClick={() => setActive(table.sourceTable)}>{table.sourceTable}</button>)}</div>
+    <div className="table-shell"><table><thead><tr><th>Origen</th><th>Destino</th><th>Conversión</th><th>Compatibilidad</th></tr></thead><tbody>{rows.map((mapping, index) => {
+      const source = schemas.find((schema) => schema.name === active)?.columns.find((column) => column.name === mapping.source);
+      const destinationColumn = destination?.columns.find((column) => column.name === mapping.destination);
+      return <tr key={mapping.source}><td>{mapping.source}<div className="text-xs text-zinc-600">{source?.dataType}</div></td><td><input value={mapping.destination} onChange={(event) => {
+        const next = [...rows]; next[index] = { ...mapping, destination: event.target.value }; setMappings({ ...mappings, [active]: next });
+      }} /></td><td><select value={mapping.transform} onChange={(event) => {
+        const next = [...rows]; next[index] = { ...mapping, transform: event.target.value as ColumnMapping["transform"] }; setMappings({ ...mappings, [active]: next });
+      }}>{transforms.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></td><td className={destinationColumn || !destination ? "text-emerald-400" : "text-amber-400"}>{!destination ? "Se creará" : destinationColumn ? destinationColumn.dataType : "No existe"}</td></tr>;
+    })}</tbody></table></div></div>;
+}
+
+function ActivityTable({ replications, action, downloadReport }: { replications: Replication[]; action(id: string, operation: "stop" | "resume" | "retry"): void; downloadReport(job: Replication): void }) {
+  return <div className="mt-6"><h2 className="mb-3 font-medium text-white">Actividad e historial</h2><div className="table-shell"><table><thead><tr><th>Flujo</th><th>Progreso</th><th>Rendimiento</th><th>Estado</th><th></th></tr></thead><tbody>
+    {replications.length ? replications.map((job) => <tr key={job.id}><td><div className="text-zinc-300">{job.source_table} → {job.destination_table}</div><div className="mt-1 text-xs text-zinc-600">{new Date(job.created_at).toLocaleString()}</div>{job.last_error && <div className="mt-1 max-w-sm truncate text-xs text-red-400">{job.last_error}</div>}</td>
+      <td><div className="mb-1 flex justify-between text-xs"><span>{Number(job.progress_percent ?? 0)}%</span><span>{Number(job.records_copied).toLocaleString()} / {Number(job.total_records ?? 0).toLocaleString()}</span></div><div className="h-1.5 w-48 overflow-hidden rounded bg-zinc-800"><div className="h-full bg-blue-500" style={{ width: `${job.progress_percent ?? 0}%` }} /></div>{Number(job.failed_records) > 0 && <div className="mt-1 text-xs text-red-400">{job.failed_records} rechazados</div>}</td>
+      <td className="text-xs text-zinc-400">{Math.round(Number(job.speed_rows_per_second ?? 0)).toLocaleString()} filas/s<br />Lote {job.current_batch} · {job.retry_count} reintentos</td>
+      <td><Status status={job.status} />{job.next_run_at && <div className="mt-1 text-[10px] text-zinc-600">{new Date(job.next_run_at).toLocaleString()}</div>}</td>
+      <td><div className="flex gap-1">{["running", "starting", "scheduled"].includes(job.status) && <button className="btn-danger" title="Detener" onClick={() => action(job.id, "stop")}><Pause size={14} /></button>}
+        {["stopped", "failed"].includes(job.status) && <button className="btn-secondary" title="Continuar" onClick={() => action(job.id, "resume")}><Play size={14} /></button>}
+        {["completed", "stopped", "failed"].includes(job.status) && <button className="btn-secondary" title="Reiniciar desde cero" onClick={() => action(job.id, "retry")}><RotateCcw size={14} /></button>}
+        <button className="btn-secondary" title="Descargar reporte" onClick={() => downloadReport(job)}><Download size={14} /></button></div></td></tr>) : <tr><td colSpan={5} className="py-10 text-center text-zinc-600">Sin replicaciones todavía</td></tr>}
+  </tbody></table></div></div>;
+}
+
+function Metric({ label, value }: { label: string; value: number }) { return <div><div className="text-xs text-zinc-600">{label}</div><div className="mt-1 text-xl font-semibold text-white">{value.toLocaleString()}</div></div>; }
 function Status({ status }: { status: string }) {
-  const style = status === "running"
-    ? "bg-blue-950 text-blue-300"
-    : status === "completed"
-      ? "bg-emerald-950 text-emerald-300"
-      : status === "failed"
-        ? "bg-red-950 text-red-300"
-        : "bg-zinc-900 text-zinc-400";
-  return <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${style}`}>{status}</span>;
+  const style = status === "running" ? "bg-blue-950 text-blue-300" : status === "completed" ? "bg-emerald-950 text-emerald-300" : status === "failed" ? "bg-red-950 text-red-300" : status === "scheduled" ? "bg-violet-950 text-violet-300" : "bg-zinc-900 text-zinc-400";
+  return <span className={`rounded-full px-2.5 py-1 text-xs ${style}`}>{status}</span>;
 }

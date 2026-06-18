@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { authenticate } from "../middleware/auth.js";
 import { replicationRequestSchema } from "../validations/replicationValidation.js";
-import { listReplications, previewReplication, startReplication, stopReplication } from "../services/replicationService.js";
+import { listReplications, previewReplication, replicationReport, resumeReplication, retryReplication, startReplication, stopReplication } from "../services/replicationService.js";
 
 export async function replicationRoutes(app: FastifyInstance): Promise<void> {
   const guards = { preHandler: [authenticate] };
@@ -19,5 +19,17 @@ export async function replicationRoutes(app: FastifyInstance): Promise<void> {
   app.post("/:id/stop", guards, async (request, reply) => {
     if (!await stopReplication((request.params as { id: string }).id, request.user.id)) return reply.code(404).send({ message: "Replicación activa no encontrada" });
     return { status: "stopped" };
+  });
+  app.post("/:id/resume", guards, async (request, reply) => {
+    if (!await resumeReplication((request.params as { id: string }).id, request.user.id)) return reply.code(404).send({ message: "Replicación reanudable no encontrada" });
+    return { status: "starting" };
+  });
+  app.post("/:id/retry", guards, async (request, reply) => {
+    if (!await retryReplication((request.params as { id: string }).id, request.user.id)) return reply.code(404).send({ message: "Replicación no encontrada" });
+    return { status: "starting" };
+  });
+  app.get("/:id/report", guards, async (request, reply) => {
+    try { return await replicationReport((request.params as { id: string }).id, request.user.id); }
+    catch (error) { return reply.code(404).send({ message: error instanceof Error ? error.message : "Replicación no encontrada" }); }
   });
 }

@@ -35,6 +35,11 @@ export class MySQLAdapter implements DatabaseAdapter {
   }
   previewCreateTable(table: string, columns: ColumnSchema[]): string { return buildCreateTableSql(table, columns, this.config.engine === "mariadb" ? "mariadb" : "mysql"); }
   async createTable(table: string, columns: ColumnSchema[]): Promise<void> { await this.db().query(this.previewCreateTable(table, columns)); }
+  async countRows(table: string): Promise<number> {
+    const [rows] = await this.db().query<mysql.RowDataPacket[]>(`SELECT COUNT(*) count FROM ${qualifiedIdentifier(table, this.config.engine)}`);
+    return Number(rows[0]?.count ?? 0);
+  }
+  async clearTable(table: string): Promise<void> { await this.db().query(`TRUNCATE TABLE ${qualifiedIdentifier(table, this.config.engine)}`); }
   async readBatch(table: string, offset: number, limit: number): Promise<Record<string, unknown>[]> {
     const [rows] = await this.db().query<mysql.RowDataPacket[]>(`SELECT * FROM ${qualifiedIdentifier(table, this.config.engine)} LIMIT ? OFFSET ?`, [limit, offset]); return rows;
   }
@@ -43,6 +48,19 @@ export class MySQLAdapter implements DatabaseAdapter {
     const columns = Object.keys(rows[0]!);
     const values = rows.map((row) => columns.map((column) => row[column]));
     await this.db().query(`INSERT INTO ${qualifiedIdentifier(table, this.config.engine)} (${columns.map((c) => qualifiedIdentifier(c, this.config.engine)).join(",")}) VALUES ?`, [values]);
+    return rows.length;
+  }
+  async upsertBatch(table: string, rows: Record<string, unknown>[], keyColumns: string[]): Promise<number> {
+    if (!rows.length) return 0;
+    if (!keyColumns.length) throw new Error("UPsert requiere una clave primaria");
+    const columns = Object.keys(rows[0]!);
+    const values = rows.map((row) => columns.map((column) => row[column]));
+    const updates = columns.filter((column) => !keyColumns.includes(column))
+      .map((column) => `${qualifiedIdentifier(column, this.config.engine)}=VALUES(${qualifiedIdentifier(column, this.config.engine)})`);
+    await this.db().query(
+      `${updates.length ? "INSERT" : "INSERT IGNORE"} INTO ${qualifiedIdentifier(table, this.config.engine)} (${columns.map((column) => qualifiedIdentifier(column, this.config.engine)).join(",")}) VALUES ? ${updates.length ? `ON DUPLICATE KEY UPDATE ${updates.join(",")}` : ""}`,
+      [values]
+    );
     return rows.length;
   }
   async verifyReadPermission(table: string): Promise<void> { await this.db().query(`SELECT 1 FROM ${qualifiedIdentifier(table, this.config.engine)} LIMIT 0`); }
