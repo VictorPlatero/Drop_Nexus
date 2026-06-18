@@ -13,8 +13,8 @@ const tableMappingSchema = z.object({
 });
 
 export const replicationRequestSchema = z.object({
-  sourceConfigId: z.string().uuid(),
-  destinationConfigId: z.string().uuid(),
+  sourceConfigId: z.coerce.string().min(1).max(100),
+  destinationConfigId: z.coerce.string().min(1).max(100),
   sourceTable: z.string().min(1).max(255).optional(),
   destinationTable: z.string().min(1).max(255).optional(),
   tables: z.array(tableMappingSchema).min(1).max(100).optional(),

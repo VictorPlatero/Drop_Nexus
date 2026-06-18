@@ -25,6 +25,8 @@ services:
         generateValue: true
       - key: DATABASE_UPLOAD_DIR
         value: /var/data/databases
+      - key: MAX_DATABASE_FILE_SIZE_MB
+        value: "500"
       - key: ADMIN_EMAIL
         value: victorplateromaron58@gmail.com
       - key: ADMIN_PASSWORD

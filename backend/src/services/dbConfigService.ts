@@ -126,6 +126,7 @@ export async function deleteConfiguration(id: string, userId: string): Promise<b
       "DELETE FROM replications WHERE user_id=$1 AND (source_config_id=$2 OR destination_config_id=$2)",
       [userId, id]
     );
+    await client.query("DELETE FROM health_checks WHERE config_id=$1::text", [id]);
     const result = await client.query("DELETE FROM db_configurations WHERE id=$1 AND user_id=$2", [id, userId]);
     await client.query("COMMIT");
     return result.rowCount === 1;

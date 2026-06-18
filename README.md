@@ -69,6 +69,10 @@ En producción Fastify sirve `frontend/dist` y las APIs bajo `/api`.
 3. Conserva `JWT_SECRET` y `ENCRYPTION_KEY` generados. Cambiar `ENCRYPTION_KEY` inutiliza contraseñas de conexiones ya cifradas.
 4. Despliega. El health check usa `/api/status`.
 
+No es necesario ejecutar migraciones manuales en Supabase: el backend crea y amplía sus tablas al iniciar. Las tablas auxiliares almacenan IDs de referencia como texto para ser compatibles tanto con proyectos antiguos que usan IDs enteros como con instalaciones nuevas basadas en UUID.
+
+La importación `.bak` solo funciona si Render tiene acceso a un SQL Server externo y a una carpeta compartida visible con la misma ruta para ambos servicios. Sin esa infraestructura, utiliza scripts `.sql`; Render no incluye SQL Server dentro del servicio Node.
+
 ## Seguridad y operación
 
 - JWT de 7 días y rate limit de 100 solicitudes/minuto/IP.

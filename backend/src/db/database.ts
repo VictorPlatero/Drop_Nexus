@@ -63,8 +63,8 @@ export async function initializeDatabase(): Promise<void> {
     );
     CREATE TABLE IF NOT EXISTS health_checks (
       id bigserial PRIMARY KEY,
-      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      config_id uuid NOT NULL REFERENCES db_configurations(id) ON DELETE CASCADE,
+      user_id text NOT NULL,
+      config_id text NOT NULL,
       status text NOT NULL,
       latency_ms integer NOT NULL,
       read_rows_per_second numeric,
@@ -124,33 +124,25 @@ export async function initializeDatabase(): Promise<void> {
     ALTER TABLE replications ADD COLUMN IF NOT EXISTS completed_at timestamptz;
     ALTER TABLE replications ADD COLUMN IF NOT EXISTS next_run_at timestamptz;
     ALTER TABLE replications ADD COLUMN IF NOT EXISTS error_details jsonb DEFAULT '[]'::jsonb;
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(lower(email));
-    CREATE INDEX IF NOT EXISTS idx_replications_group_id ON replications(group_id);
-    CREATE INDEX IF NOT EXISTS idx_replications_next_run ON replications(next_run_at) WHERE next_run_at IS NOT NULL;
-  `);
-  await pool.query(`
     DO $$
     DECLARE constraint_name text;
     BEGIN
-      IF EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_name = 'replications'
-          AND column_name = 'destination_config_id'
-          AND data_type <> 'uuid'
-      ) AND NOT EXISTS (SELECT 1 FROM replications) THEN
+      IF to_regclass('health_checks') IS NOT NULL THEN
         FOR constraint_name IN
           SELECT conname
           FROM pg_constraint
-          WHERE conrelid = 'replications'::regclass
-            AND pg_get_constraintdef(oid) ILIKE '%destination_config_id%'
+          WHERE conrelid = 'health_checks'::regclass
+            AND contype = 'f'
         LOOP
-          EXECUTE format('ALTER TABLE replications DROP CONSTRAINT %I', constraint_name);
+          EXECUTE format('ALTER TABLE health_checks DROP CONSTRAINT %I', constraint_name);
         END LOOP;
-        ALTER TABLE replications
-          ALTER COLUMN destination_config_id TYPE uuid USING NULL::uuid;
+        ALTER TABLE health_checks ALTER COLUMN user_id TYPE text USING user_id::text;
+        ALTER TABLE health_checks ALTER COLUMN config_id TYPE text USING config_id::text;
       END IF;
     END $$;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(lower(email));
+    CREATE INDEX IF NOT EXISTS idx_replications_group_id ON replications(group_id);
+    CREATE INDEX IF NOT EXISTS idx_replications_next_run ON replications(next_run_at) WHERE next_run_at IS NOT NULL;
   `);
   logger.info("Metadata database initialized");
 }
