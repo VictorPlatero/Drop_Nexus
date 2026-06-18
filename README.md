@@ -73,6 +73,8 @@ No es necesario ejecutar migraciones manuales en Supabase: el backend crea y amp
 
 La importación `.bak` solo funciona si Render tiene acceso a un SQL Server externo y a una carpeta compartida visible con la misma ruta para ambos servicios. Sin esa infraestructura, utiliza scripts `.sql`; Render no incluye SQL Server dentro del servicio Node.
 
+El servicio necesita un disco persistente montado exactamente en `/var/data/databases` y la variable `DATABASE_UPLOAD_DIR=/var/data/databases`. En servicios de Render creados antes de añadir `render.yaml`, comprueba el disco desde el panel o vuelve a sincronizar el Blueprint. Los archivos guardados anteriormente bajo `/opt/render/project/src/backend/storage/databases` pertenecían al sistema temporal y deben importarse nuevamente.
+
 ## Seguridad y operación
 
 - JWT de 7 días y rate limit de 100 solicitudes/minuto/IP.

@@ -29,11 +29,12 @@ export function catalogRoot(): string {
 }
 
 function catalogRootCandidates(): string[] {
+  if (process.env.NODE_ENV === "production") {
+    return [path.resolve(process.env.DATABASE_UPLOAD_DIR ?? "/var/data/databases")];
+  }
   return [
-    process.env.SQLSERVER_BACKUP_DIR,
     process.env.DATABASE_UPLOAD_DIR,
     process.env.SQLITE_UPLOAD_DIR,
-    process.env.NODE_ENV === "production" ? "/var/data/databases" : undefined,
     path.join(process.cwd(), "storage", "databases"),
     path.join(os.tmpdir(), "drop-nexus", "databases")
   ].filter((value): value is string => Boolean(value)).map((value) => path.resolve(value));
@@ -65,6 +66,13 @@ function extensionsFor(engine: DbEngine): string[] {
   return [".sql"];
 }
 
+async function writableBackupDirectory(userId: string): Promise<string> {
+  if (!process.env.SQLSERVER_BACKUP_DIR) throw new Error("SQLSERVER_BACKUP_DIR no está configurado");
+  const directory = path.join(path.resolve(process.env.SQLSERVER_BACKUP_DIR), String(userId));
+  await mkdir(directory, { recursive: true });
+  return directory;
+}
+
 export async function importDatabaseFile(file: MultipartFile, userId: string, engine: DbEngine): Promise<{ catalogPath: string; originalName: string; size: number; tableCount: number }> {
   const extension = path.extname(file.filename).toLowerCase();
   if (!extensionsFor(engine).includes(extension)) {
@@ -72,7 +80,8 @@ export async function importDatabaseFile(file: MultipartFile, userId: string, en
   }
   if (extension === ".bak") assertBakRestoreConfigured();
   const directory = await writableUserDirectory(userId);
-  const rawPath = path.join(directory, `${randomUUID()}${extension}`);
+  const rawDirectory = extension === ".bak" ? await writableBackupDirectory(userId) : directory;
+  const rawPath = path.join(rawDirectory, `${randomUUID()}${extension}`);
   const catalogPath = path.join(directory, `${randomUUID()}.catalog.json`);
   let size = 0;
   file.file.on("data", (chunk: Buffer) => {
@@ -205,7 +214,19 @@ async function importSqlServerBackup(filePath: string): Promise<CatalogTable[]> 
 }
 
 export async function readCatalog(filePath: string): Promise<FileCatalog> {
-  return JSON.parse(await readFile(filePath, "utf8")) as FileCatalog;
+  try {
+    return JSON.parse(await readFile(filePath, "utf8")) as FileCatalog;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(
+        "El archivo importado ya no existe en el almacenamiento. Probablemente fue guardado en el disco temporal de Render antes de configurar el disco persistente. Elimina esta base e importa nuevamente el archivo."
+      );
+    }
+    if (error instanceof SyntaxError) {
+      throw new Error("El catálogo interno de la base está dañado. Elimina esta base e importa nuevamente el archivo original.");
+    }
+    throw error;
+  }
 }
 
 export async function writeCatalog(filePath: string, catalog: FileCatalog): Promise<void> {
