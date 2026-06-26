@@ -37,6 +37,8 @@ El backend inicializa de forma idempotente las columnas e índices requeridos y 
 | `DATABASE_URL` | Sí | URL PostgreSQL de metadatos Supabase |
 | `JWT_SECRET` | Sí | Secreto de al menos 32 caracteres |
 | `ENCRYPTION_KEY` | Sí | Preferiblemente 64 caracteres hex para AES-256-GCM |
+| `OPENAI_API_KEY` | No | Clave secreta para activar el asistente externo del chatbox |
+| `OPENAI_MODEL` | No | Modelo del asistente, por defecto `gpt-5.5` |
 | `FRONTEND_URL` | No | Orígenes CORS separados por coma |
 | `PORT` | No | Puerto del API, por defecto `3000` |
 | `ADMIN_EMAIL` | No | Email del admin inicial |

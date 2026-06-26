@@ -19,6 +19,10 @@ services:
         generateValue: true
       - key: ENCRYPTION_KEY
         generateValue: true
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5.5
       - key: MAX_DATABASE_FILE_SIZE_MB
         value: "500"
       - key: ADMIN_EMAIL

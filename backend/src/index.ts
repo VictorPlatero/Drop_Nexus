@@ -20,6 +20,7 @@ import { configurationRoutes } from "./routes/configurations.js";
 import { replicationRoutes } from "./routes/replication.js";
 import { healthRoutes } from "./routes/health.js";
 import { schemaRoutes } from "./routes/schema.js";
+import { assistantRoutes } from "./routes/assistant.js";
 import { cleanupExpiredConfigurations, startExpirationCleanup } from "./services/expirationService.js";
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
@@ -45,6 +46,7 @@ await app.register(configurationRoutes, { prefix: "/api/configurations" });
 await app.register(replicationRoutes, { prefix: "/api/replications" });
 await app.register(healthRoutes, { prefix: "/api/health" });
 await app.register(schemaRoutes, { prefix: "/api/schema" });
+await app.register(assistantRoutes, { prefix: "/api/assistant" });
 
 const frontendRoot = fileURLToPath(new URL("../../frontend/dist/", import.meta.url));
 if (existsSync(frontendRoot)) {

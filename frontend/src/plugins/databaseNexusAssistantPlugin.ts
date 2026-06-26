@@ -1,5 +1,5 @@
 import type { DashboardSection } from "../components/Sidebar";
-import type { DbConfiguration } from "../services/api";
+import { api, type DbConfiguration } from "../services/api";
 import skillMarkdown from "../skills/database-nexus-assistant.md?raw";
 
 export interface AssistantContext {
@@ -130,6 +130,20 @@ export const databaseNexusAssistantPlugin = {
   },
   getSuggestions(context: AssistantContext): AssistantSuggestion[] {
     return dedupe([...suggestionsBySection[context.section], ...globalSuggestions]).slice(0, 4);
+  },
+  async askExternal(input: string, context: AssistantContext): Promise<AssistantReply | null> {
+    try {
+      const result = await api<{ text: string }>("/assistant/chat", {
+        method: "POST",
+        body: JSON.stringify({ message: input, section: context.section })
+      });
+      return {
+        text: result.text,
+        suggestions: this.getSuggestions(context)
+      };
+    } catch {
+      return null;
+    }
   },
   ask(input: string, context: AssistantContext): AssistantReply {
     const normalized = normalize(input);

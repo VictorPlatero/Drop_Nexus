@@ -22,6 +22,7 @@ export default function NexusChatbox({ section, configurations, onSection }: Pro
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>(() => [createWelcomeMessage(context)]);
+  const [thinking, setThinking] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -35,28 +36,34 @@ export default function NexusChatbox({ section, configurations, onSection }: Pro
   const activeSuggestions = [...messages].reverse().find((message) => message.role === "assistant" && message.suggestions?.length)?.suggestions
     ?? databaseNexusAssistantPlugin.getSuggestions(context);
 
-  const sendMessage = (text: string, targetSection?: DashboardSection) => {
+  const sendMessage = async (text: string, targetSection?: DashboardSection) => {
     const clean = text.trim();
-    if (!clean) return;
+    if (!clean || thinking) return;
     const nextContext = { ...context, section: targetSection ?? context.section };
     if (targetSection && targetSection !== section) onSection(targetSection);
-    const reply = databaseNexusAssistantPlugin.ask(clean, nextContext);
     setMessages((current) => [
       ...current,
-      { id: crypto.randomUUID(), role: "user", text: clean },
-      { id: crypto.randomUUID(), role: "assistant", text: reply.text, suggestions: reply.suggestions }
+      { id: crypto.randomUUID(), role: "user", text: clean }
     ]);
     setDraft("");
     setOpen(true);
+    setThinking(true);
+    const reply = await databaseNexusAssistantPlugin.askExternal(clean, nextContext)
+      ?? databaseNexusAssistantPlugin.ask(clean, nextContext);
+    setMessages((current) => [
+      ...current,
+      { id: crypto.randomUUID(), role: "assistant", text: reply.text, suggestions: reply.suggestions }
+    ]);
+    setThinking(false);
   };
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    sendMessage(draft);
+    void sendMessage(draft);
   };
 
   const runSuggestion = (suggestion: AssistantSuggestion) => {
-    sendMessage(suggestion.prompt, suggestion.section);
+    void sendMessage(suggestion.prompt, suggestion.section);
   };
 
   return <div className="fixed bottom-5 right-5 z-40 md:bottom-6 md:right-6">
@@ -81,6 +88,9 @@ export default function NexusChatbox({ section, configurations, onSection }: Pro
               {message.text}
             </div>
           </div>)}
+          {thinking && <div className="flex justify-start">
+            <div className="rounded-button border border-line bg-[#0D0D0D] px-3 py-2 text-sm text-zinc-500">Consultando asistente...</div>
+          </div>}
           <div ref={scrollRef} />
         </div>
       </div>
@@ -95,8 +105,8 @@ export default function NexusChatbox({ section, configurations, onSection }: Pro
           </button>)}
         </div>
         <form onSubmit={submit} className="flex items-end gap-2">
-          <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={1} placeholder="Pregunta sobre tu flujo..." className="max-h-24 min-h-11 resize-none" />
-          <button type="submit" disabled={!draft.trim()} className="grid h-11 w-11 shrink-0 place-items-center rounded-button bg-blue-600 text-white hover:bg-blue-500" aria-label="Enviar" title="Enviar">
+          <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={1} placeholder="Pregunta sobre tu flujo..." disabled={thinking} className="max-h-24 min-h-11 resize-none" />
+          <button type="submit" disabled={!draft.trim() || thinking} className="grid h-11 w-11 shrink-0 place-items-center rounded-button bg-blue-600 text-white hover:bg-blue-500" aria-label="Enviar" title="Enviar">
             <Send size={17} />
           </button>
         </form>
