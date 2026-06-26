@@ -1,0 +1,12 @@
+{
+  "files.eol": "\n",
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/*.tsbuildinfo": true
+  },
+  "typescript.tsdk": "frontend/node_modules/typescript/lib",
+  "tailwindCSS.includeLanguages": {
+    "typescriptreact": "html"
+  }
+}

@@ -30,6 +30,15 @@ API: `http://localhost:3000/api/status`
 
 El backend inicializa de forma idempotente las columnas e índices requeridos y crea el administrador al arrancar.
 
+## Visual Studio Code
+
+El repositorio incluye una configuración portable en `.vscode/` para Windows, Linux y macOS.
+
+- Al abrir el proyecto, VS Code sugerirá extensiones para Tailwind, variables `.env`, formato y pruebas HTTP.
+- Las tareas usan `npm.cmd` en Windows y `npm` en Linux/macOS.
+- Desde **Terminal > Run Task** puedes ejecutar `Install all dependencies`, `Dev backend`, `Dev frontend`, `Typecheck` y `Build`.
+- Desde **Run and Debug** puedes iniciar `Backend dev`.
+
 ## Variables
 
 | Variable | Requerida | Descripción |
