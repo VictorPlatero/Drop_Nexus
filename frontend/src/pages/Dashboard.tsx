@@ -6,6 +6,7 @@ import ReplicationPanel from "../components/ReplicationPanel";
 import HealthMonitor from "../components/HealthMonitor";
 import SchemaDocumenter from "../components/SchemaDocumenter";
 import ToastNotification, { type ToastState } from "../components/ToastNotification";
+import NexusChatbox from "../components/NexusChatbox";
 import { api, type DbConfiguration } from "../services/api";
 
 export default function Dashboard() {
@@ -20,6 +21,7 @@ export default function Dashboard() {
     {section === "configurations" && <ConfigurationsList configurations={configurations} refresh={refresh} notify={notify} />}
     {section === "health" && <HealthMonitor />}
     {section === "schema" && <SchemaDocumenter configurations={configurations} notify={notify} />}
+    <NexusChatbox section={section} configurations={configurations} onSection={setSection} />
     <ToastNotification toast={toast} onClose={() => setToast(null)} />
   </Layout>;
 }
