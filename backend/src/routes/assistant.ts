@@ -5,7 +5,7 @@ import { answerAssistantMessage } from "../services/assistantService.js";
 
 const assistantChatSchema = z.object({
   message: z.string().trim().min(1).max(2000),
-  section: z.enum(["replication", "configurations", "health", "schema"])
+  section: z.enum(["replication", "configurations"])
 });
 
 export async function assistantRoutes(app: FastifyInstance): Promise<void> {

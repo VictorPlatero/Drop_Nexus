@@ -3,8 +3,6 @@ import Layout from "../components/Layout";
 import type { DashboardSection } from "../components/Sidebar";
 import ConfigurationsList from "../components/ConfigurationsList";
 import ReplicationPanel from "../components/ReplicationPanel";
-import HealthMonitor from "../components/HealthMonitor";
-import SchemaDocumenter from "../components/SchemaDocumenter";
 import ToastNotification, { type ToastState } from "../components/ToastNotification";
 import NexusChatbox from "../components/NexusChatbox";
 import { api, type DbConfiguration } from "../services/api";
@@ -19,8 +17,6 @@ export default function Dashboard() {
   return <Layout section={section} onSection={setSection}>
     {section === "replication" && <ReplicationPanel configurations={configurations} refreshConfigurations={refresh} notify={notify} />}
     {section === "configurations" && <ConfigurationsList configurations={configurations} refresh={refresh} notify={notify} />}
-    {section === "health" && <HealthMonitor />}
-    {section === "schema" && <SchemaDocumenter configurations={configurations} notify={notify} />}
     <NexusChatbox section={section} configurations={configurations} onSection={setSection} />
     <ToastNotification toast={toast} onClose={() => setToast(null)} />
   </Layout>;

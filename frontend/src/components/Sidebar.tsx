@@ -1,16 +1,14 @@
-import { Activity, BookOpen, Database, LogOut, Repeat2, Users } from "lucide-react";
+import { Database, LogOut, Repeat2, Users } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 
-export type DashboardSection = "replication" | "configurations" | "health" | "schema";
+export type DashboardSection = "replication" | "configurations";
 export default function Sidebar({ active, onNavigate }: { active: DashboardSection; onNavigate(section: DashboardSection): void }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const items = [
     { id: "replication" as const, label: "Replicador", icon: Repeat2 },
-    { id: "configurations" as const, label: "Bases de datos", icon: Database },
-    { id: "health" as const, label: "Health Monitor", icon: Activity },
-    { id: "schema" as const, label: "Documentador", icon: BookOpen }
+    { id: "configurations" as const, label: "Bases de datos", icon: Database }
   ];
   return <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-line bg-panel md:flex">
     <div className="border-b border-line px-6 py-6">

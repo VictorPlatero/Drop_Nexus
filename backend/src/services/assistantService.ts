@@ -5,7 +5,7 @@ import { listReplications } from "./replicationService.js";
 
 export interface AssistantChatInput {
   message: string;
-  section: "replication" | "configurations" | "health" | "schema";
+  section: "replication" | "configurations";
 }
 
 interface OpenAIResponse {

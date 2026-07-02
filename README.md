@@ -105,4 +105,4 @@ El replicador permite selección múltiple de tablas, mapeo y transformación de
 
 Las ejecuciones incrementales por offset son adecuadas cuando el origen agrega filas de forma estable. No constituyen CDC ni garantizan exact-once si se eliminan o reordenan filas durante el proceso. Para ese nivel se requiere WAL, binlog o change streams y una cola persistente.
 
-El Health Monitor conserva siete días de comprobaciones y resume disponibilidad y latencia de las últimas 24 horas. El Documentador incluye perfil de columnas, comparación de esquemas, relaciones detectadas, ocultamiento de campos sensibles y exportación HTML/Markdown.
+La propuesta principal se centra en la app de replicación: importar bases, seleccionar origen y destino, mapear tablas y columnas, validar el flujo y ejecutar réplicas con historial, reintentos y reportes.
