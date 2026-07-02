@@ -1,0 +1,78 @@
+{
+  "name": "database-nexus-vscode",
+  "displayName": "Database Nexus Replicator",
+  "description": "Extension de VS Code para trabajar con la skill, plugin y flujo de replicacion de Database Nexus.",
+  "version": "0.1.0",
+  "publisher": "victorplatero",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:databaseNexus.openSkill",
+    "onCommand:databaseNexus.openPlugin",
+    "onCommand:databaseNexus.openChatbox",
+    "onCommand:databaseNexus.insertPrompt",
+    "onCommand:databaseNexus.validateAssistant",
+    "onCommand:databaseNexus.openLocalApp"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "databaseNexus.openSkill",
+        "title": "Database Nexus: Abrir skill del asistente"
+      },
+      {
+        "command": "databaseNexus.openPlugin",
+        "title": "Database Nexus: Abrir plugin del asistente"
+      },
+      {
+        "command": "databaseNexus.openChatbox",
+        "title": "Database Nexus: Abrir chatbox integrado"
+      },
+      {
+        "command": "databaseNexus.insertPrompt",
+        "title": "Database Nexus: Insertar consulta sugerida"
+      },
+      {
+        "command": "databaseNexus.validateAssistant",
+        "title": "Database Nexus: Validar skill, plugin y chatbox"
+      },
+      {
+        "command": "databaseNexus.openLocalApp",
+        "title": "Database Nexus: Abrir app local"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "databaseNexus.validateAssistant",
+          "group": "navigation@20"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "databaseNexus.openSkill"
+        },
+        {
+          "command": "databaseNexus.openPlugin"
+        },
+        {
+          "command": "databaseNexus.openChatbox"
+        },
+        {
+          "command": "databaseNexus.insertPrompt"
+        },
+        {
+          "command": "databaseNexus.validateAssistant"
+        },
+        {
+          "command": "databaseNexus.openLocalApp"
+        }
+      ]
+    }
+  }
+}

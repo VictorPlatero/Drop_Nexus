@@ -53,6 +53,13 @@
       },
       "group": "build",
       "problemMatcher": "$tsc"
+    },
+    {
+      "label": "Open VS Code extension folder",
+      "type": "shell",
+      "command": "code",
+      "args": ["${workspaceFolder}/vscode-extension"],
+      "problemMatcher": []
     }
   ]
 }

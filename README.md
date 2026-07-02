@@ -37,7 +37,8 @@ El repositorio incluye una configuración portable en `.vscode/` para Windows, L
 - Al abrir el proyecto, VS Code sugerirá extensiones para Tailwind, variables `.env`, formato y pruebas HTTP.
 - Las tareas usan `npm.cmd` en Windows y `npm` en Linux/macOS.
 - Desde **Terminal > Run Task** puedes ejecutar `Install all dependencies`, `Dev backend`, `Dev frontend`, `Typecheck` y `Build`.
-- Desde **Run and Debug** puedes iniciar `Backend dev`.
+- Desde **Run and Debug** puedes iniciar `Backend dev` o `VS Code Extension`.
+- La carpeta `vscode-extension/` contiene una extension local de VS Code con comandos para abrir la skill `.md`, el plugin, el chatbox, insertar consultas sugeridas y validar la integracion del asistente.
 
 ## Variables
 
