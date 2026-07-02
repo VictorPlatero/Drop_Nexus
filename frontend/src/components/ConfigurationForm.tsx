@@ -65,9 +65,14 @@ export default function ConfigurationForm({
   const currentFormat = formats[form.engine]!;
 
   return <form className="card space-y-5" onSubmit={submit}>
-    <div>
-      <h2 className="font-semibold text-white">{editing ? "Editar base de datos" : "Agregar base de datos"}</h2>
-      <p className="mt-1 text-sm text-zinc-500">La base se importa desde un archivo de tu computadora.</p>
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <h2 className="font-semibold text-white">{editing ? "Editar base de datos" : "Agregar base de datos"}</h2>
+        <p className="mt-1 text-sm text-zinc-500">La base se importa desde un archivo de tu computadora.</p>
+      </div>
+      <div className="hidden rounded-button border border-blue-500/20 bg-blue-600/10 px-3 py-2 text-xs text-blue-300 sm:block">
+        Origen o destino
+      </div>
     </div>
 
     <div className="grid gap-4 md:grid-cols-2">
@@ -129,7 +134,7 @@ export default function ConfigurationForm({
         }}
       />
 
-      {form.databaseFile ? <div className="flex items-center justify-between rounded-button border border-blue-900 bg-blue-950/30 p-4">
+      {form.databaseFile ? <div className="flex items-center justify-between rounded-button border border-blue-500/30 bg-blue-600/10 p-4">
         <div className="flex min-w-0 items-center gap-3">
           <Database className="shrink-0 text-blue-400" size={22} />
           <div className="min-w-0">

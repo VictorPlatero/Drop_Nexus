@@ -81,10 +81,10 @@ export default function ConfigurationsList({
   }
 
   return <div>
-    <div className="mb-6 flex items-end justify-between">
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div>
         <h1 className="text-2xl font-semibold text-white">Bases de datos</h1>
-        <p className="mt-1 text-sm text-zinc-500">{configurations.length} de 10 archivos importados</p>
+        <p className="mt-1 text-sm text-zinc-500">{configurations.length} de 10 archivos disponibles para flujos origen-destino</p>
       </div>
       <button disabled={configurations.length >= 10} className="btn-primary flex items-center gap-2" onClick={() => setFormOpen(true)}>
         <Plus size={17} />Importar base
@@ -92,13 +92,15 @@ export default function ConfigurationsList({
     </div>
 
     {!configurations.length ? <div className="card py-16 text-center">
-      <Database className="mx-auto mb-4 text-zinc-700" size={32} />
+      <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-button border border-line bg-zinc-950">
+        <Database className="text-blue-400" size={28} />
+      </div>
       <p className="text-zinc-400">Aún no hay bases de datos importadas.</p>
     </div> : <div className="grid gap-4 lg:grid-cols-2">
-      {configurations.map((config) => <article key={config.id} className="card">
+      {configurations.map((config) => <article key={config.id} className="card hover:border-blue-500/30">
         <div className="flex items-start justify-between">
           <div className="flex gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-button border border-line bg-zinc-950">
+            <div className="grid h-10 w-10 place-items-center rounded-button border border-blue-500/20 bg-blue-600/10">
               <Database size={18} className="text-blue-400" />
             </div>
             <div>

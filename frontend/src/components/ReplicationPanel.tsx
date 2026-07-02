@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Database, Download, Pause, Play, Plus, RefreshCw, RotateCcw, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Database, Download, Layers3, Pause, Play, Plus, RefreshCw, RotateCcw, X } from "lucide-react";
 import { api, uploadDatabase, type DbConfiguration } from "../services/api";
 import ConfigurationForm, { type ConfigurationPayload } from "./ConfigurationForm";
 import ReplicationConfirmModal from "./ReplicationConfirmModal";
@@ -166,14 +166,24 @@ export default function ReplicationPanel({ configurations, refreshConfigurations
   };
 
   return <div>
-    <div className="mb-6">
-      <h1 className="text-2xl font-semibold text-white">Replicador</h1>
-      <p className="mt-1 text-sm text-zinc-500">Configura, valida, ejecuta y reanuda flujos entre motores.</p>
+    <div className="mb-6 grid gap-4 xl:grid-cols-[1fr_auto]">
+      <div>
+        <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-600/10 px-3 py-1 text-xs text-blue-300">
+          <Layers3 size={14} />Flujo origen-destino
+        </div>
+        <h1 className="text-2xl font-semibold text-white">Replicador</h1>
+        <p className="mt-1 text-sm text-zinc-500">Configura, valida, ejecuta y reanuda transferencias entre motores.</p>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <HeaderMetric label="Bases" value={configurations.length} />
+        <HeaderMetric label="Activas" value={replications.filter((job) => ["starting", "running", "scheduled"].includes(job.status)).length} />
+        <HeaderMetric label="Historial" value={replications.length} />
+      </div>
     </div>
 
     <div className="mb-5 grid grid-cols-4 gap-2">
       {["Conexiones", "Tablas", "Mapeo", "Validación"].map((label, index) => <button key={label} onClick={() => index + 1 < step && setStep(index + 1)}
-        className={`rounded-button border px-3 py-2 text-xs ${step === index + 1 ? "border-blue-600 bg-blue-950 text-blue-300" : index + 1 < step ? "border-emerald-900 text-emerald-400" : "border-line text-zinc-600"}`}>
+        className={`rounded-button border px-3 py-2 text-xs ${step === index + 1 ? "border-blue-500 bg-blue-600/15 text-blue-300" : index + 1 < step ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-line bg-panel/60 text-zinc-500"}`}>
         {index + 1}. {label}
       </button>)}
     </div>
@@ -236,6 +246,13 @@ export default function ReplicationPanel({ configurations, refreshConfigurations
       <div className="mb-3 flex justify-between"><h2 className="font-semibold text-white">Agregar base como {addingFor === "source" ? "origen" : "destino"}</h2><button onClick={() => setAddingFor(null)}><X /></button></div>
       <ConfigurationForm onSubmit={createConnection} onCancel={() => setAddingFor(null)} />
     </div></div>}
+  </div>;
+}
+
+function HeaderMetric({ label, value }: { label: string; value: number }) {
+  return <div className="min-w-24 rounded-button border border-line bg-panel px-4 py-3">
+    <div className="text-xs text-zinc-500">{label}</div>
+    <div className="mt-1 text-xl font-semibold text-white">{value.toLocaleString()}</div>
   </div>;
 }
 

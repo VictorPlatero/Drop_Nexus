@@ -5,12 +5,12 @@ export default {
     extend: {
       colors: {
         canvas: "#0A0A0A",
-        panel: "#111111",
-        line: "#222222",
+        panel: "#111318",
+        line: "#24262D",
         accent: "#3B82F6"
       },
       fontFamily: { sans: ["Inter", "ui-sans-serif", "system-ui"] },
-      borderRadius: { card: "12px", button: "8px" }
+      borderRadius: { card: "8px", button: "8px" }
     }
   },
   plugins: []
