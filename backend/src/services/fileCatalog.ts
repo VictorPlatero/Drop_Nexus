@@ -1,5 +1,5 @@
 import { createWriteStream } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -84,9 +84,21 @@ export async function isOwnedCatalogReference(filePath: string, userId: string):
   return Boolean(result.rowCount);
 }
 
+export async function validateOwnedCatalogReference(filePath: string, userId: string, engine: DbEngine): Promise<boolean> {
+  if (!await isOwnedCatalogReference(filePath, userId)) return false;
+  try {
+    const catalog = await readCatalog(filePath);
+    return catalog.sourceEngine === engine;
+  } catch {
+    return false;
+  }
+}
+
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 const DATABASE_CATALOG_PREFIX = "catalog-db://";
+const SQLITE_HEADER = Buffer.from("SQLite format 3\0", "utf8");
+const MAX_ORIGINAL_NAME_LENGTH = 255;
 
 async function writableBackupDirectory(userId: string): Promise<string> {
   if (!process.env.SQLSERVER_BACKUP_DIR) throw new Error("SQLSERVER_BACKUP_DIR no está configurado");
@@ -95,10 +107,56 @@ async function writableBackupDirectory(userId: string): Promise<string> {
   return directory;
 }
 
+function validateUploadMetadata(file: MultipartFile, engine: DbEngine): string {
+  if (file.fieldname !== "file") throw new Error('El campo multipart debe llamarse "file"');
+  const originalName = safeOriginalFileName(file.filename);
+  if (!originalName) throw new Error("El archivo no tiene nombre valido");
+  if (originalName.length > MAX_ORIGINAL_NAME_LENGTH) throw new Error("El nombre del archivo supera 255 caracteres");
+  if (/[\u0000-\u001F<>:"/\\|?*]/.test(originalName)) throw new Error("El nombre del archivo contiene caracteres no permitidos");
+  const extension = path.extname(originalName).toLowerCase();
+  if (!extension) throw new Error(`El archivo para ${engine} debe tener extension ${extensionsFor(engine).join(", ")}`);
+  return originalName;
+}
+
+function safeOriginalFileName(fileName: string | undefined): string {
+  const trimmed = (fileName ?? "").trim();
+  const withoutPosixPath = path.posix.basename(trimmed);
+  return path.win32.basename(withoutPosixPath).trim();
+}
+
+async function validateStoredUpload(filePath: string, extension: string): Promise<void> {
+  const head = await readFileStart(filePath, Math.max(SQLITE_HEADER.length, 4096));
+  if (!head.length) throw new Error("El archivo esta vacio");
+
+  if ([".db", ".sqlite", ".sqlite3"].includes(extension)) {
+    if (head.length < SQLITE_HEADER.length || !head.subarray(0, SQLITE_HEADER.length).equals(SQLITE_HEADER)) {
+      throw new Error("El archivo no tiene una cabecera SQLite valida");
+    }
+    return;
+  }
+
+  if (extension === ".bak") return;
+  if (head.includes(0)) throw new Error("El archivo parece binario. Sube un export compatible con el motor seleccionado");
+  const sample = decodeText(head);
+  if (!sample.trim()) throw new Error("El archivo no contiene datos legibles");
+}
+
+async function readFileStart(filePath: string, length: number): Promise<Buffer> {
+  const handle = await open(filePath, "r");
+  try {
+    const buffer = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
 export async function importDatabaseFile(file: MultipartFile, userId: string, engine: DbEngine): Promise<{ catalogPath: string; originalName: string; size: number; tableCount: number }> {
-  const extension = path.extname(file.filename).toLowerCase();
+  const originalName = validateUploadMetadata(file, engine);
+  const extension = path.extname(originalName).toLowerCase();
   if (!extensionsFor(engine).includes(extension)) {
-    throw new Error(`Formato no válido para ${engine}. Usa ${extensionsFor(engine).join(", ")}`);
+    throw new Error(`Formato no valido para ${engine}. Usa ${extensionsFor(engine).join(", ")}`);
   }
   if (extension === ".bak") assertBakRestoreConfigured();
   const directory = process.env.NODE_ENV === "production"
@@ -116,15 +174,16 @@ export async function importDatabaseFile(file: MultipartFile, userId: string, en
   });
   try {
     await pipeline(file.file, createWriteStream(rawPath, { flags: "wx" }));
+    await validateStoredUpload(rawPath, extension);
     const tables = engine === "sqlite"
       ? await importSQLite(rawPath)
       : engine === "mongodb"
-        ? await importMongo(rawPath, extension)
+        ? await importMongo(rawPath, extension, path.basename(originalName, extension))
         : engine === "sqlserver" && extension === ".bak"
           ? await importSqlServerBackup(rawPath)
-          : await importSql(rawPath);
+          : await importSql(rawPath, engine);
     if (!tables.length) throw new Error("No se encontraron tablas o colecciones importables");
-    const catalog: FileCatalog = { version: 1, sourceEngine: engine, originalName: path.basename(file.filename), tables };
+    const catalog: FileCatalog = { version: 1, sourceEngine: engine, originalName, tables };
     catalogPath = process.env.NODE_ENV === "production"
       ? await createDatabaseCatalog(userId, catalog)
       : path.join(directory, `${randomUUID()}.catalog.json`);
@@ -335,19 +394,105 @@ async function importSQLite(filePath: string): Promise<CatalogTable[]> {
   }
 }
 
-async function importMongo(filePath: string, extension: string): Promise<CatalogTable[]> {
+async function importMongo(filePath: string, extension: string, fallbackName: string): Promise<CatalogTable[]> {
   const text = await readTextFile(filePath);
-  const parsed = extension === ".ndjson"
-    ? text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line))
-    : JSON.parse(text);
-  const collections: Record<string, Record<string, unknown>[]> = Array.isArray(parsed)
-    ? { [path.basename(filePath, extension)]: parsed }
-    : Object.fromEntries(Object.entries(parsed).map(([name, value]) => [name, Array.isArray(value) ? value : [value]]));
+  if (!text.trim()) throw new Error("El archivo MongoDB esta vacio");
+  const parsed = parseMongoExport(text, extension);
+  const collections = normalizeMongoCollections(parsed, fallbackName || "coleccion");
   return Object.entries(collections).map(([name, rows]) => ({
     name,
     columns: inferColumns(rows),
     rows
   }));
+}
+
+function parseMongoExport(text: string, extension: string): unknown {
+  try {
+    if (extension !== ".ndjson") return JSON.parse(text);
+    return text.split(/\r?\n/).flatMap((line, index) => {
+      if (!line.trim()) return [];
+      try {
+        return [JSON.parse(line) as unknown];
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "JSON invalido";
+        throw new Error(`NDJSON invalido en la linea ${index + 1}: ${message}`);
+      }
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("NDJSON invalido")) throw error;
+    throw new Error(`JSON invalido: ${error instanceof Error ? error.message : "no se pudo interpretar"}`);
+  }
+}
+
+function normalizeMongoCollections(parsed: unknown, fallbackName: string): Record<string, Record<string, unknown>[]> {
+  if (Array.isArray(parsed)) return { [fallbackName]: ensureObjectRows(parsed, fallbackName) };
+  if (!isRecord(parsed)) throw new Error("El export MongoDB debe ser un objeto, un arreglo de documentos o NDJSON");
+  const values = Object.values(parsed);
+  if (values.some((value) => !Array.isArray(value) && !isRecord(value))) {
+    return { [fallbackName]: ensureObjectRows([parsed], fallbackName) };
+  }
+  return Object.fromEntries(Object.entries(parsed).map(([name, value]) => [
+    name,
+    ensureObjectRows(Array.isArray(value) ? value : [value], name)
+  ]));
+}
+
+function ensureObjectRows(rows: unknown[], collectionName: string): Record<string, unknown>[] {
+  if (!rows.length) throw new Error(`La coleccion ${collectionName} no contiene documentos`);
+  return rows.map((row, index) => {
+    if (!isRecord(row)) throw new Error(`La coleccion ${collectionName} contiene un documento no valido en la posicion ${index + 1}`);
+    return row;
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function detectSqlEngine(sql: string): DbEngine | undefined {
+  const sample = sql.slice(0, 256 * 1024).toLowerCase();
+  const scores: Partial<Record<DbEngine, number>> = {
+    postgresql: 0,
+    mysql: 0,
+    mariadb: 0,
+    sqlserver: 0,
+    oracle: 0
+  };
+  const score = (engine: DbEngine, pattern: RegExp, points: number) => {
+    scores[engine] = (scores[engine] ?? 0) + (pattern.test(sample) ? points : 0);
+  };
+
+  score("postgresql", /postgresql database dump|pg_dump|set statement_timeout|set search_path|copy\s+.+\s+from stdin|::regclass/, 4);
+  score("postgresql", /\bserial\b|\bbigserial\b|\bbytea\b|\bjsonb\b/, 2);
+  score("mysql", /mysql dump|mysqldump|set @old_|lock tables|unlock tables|engine\s*=\s*(innodb|myisam)/, 4);
+  score("mysql", /`[^`]+`|\bauto_increment\b|\bunsigned\b/, 2);
+  score("mariadb", /mariadb dump|mariadb server|mariadb-dump/, 5);
+  score("mariadb", /engine\s*=\s*aria|\bsequence\b/, 2);
+  score("sqlserver", /sql server|microsoft sql|set ansi_nulls|set quoted_identifier|\bgo\s*(?:\r?\n|$)|\bnvarchar\b|\buniqueidentifier\b|\bidentity\s*\(/m, 4);
+  score("sqlserver", /\[[^\]]+\]\.\[[^\]]+\]|\bdatetime2\b|\bvarbinary\(max\)/, 2);
+  score("oracle", /oracle database|sql\*plus|rem inserting into|set define off|tablespace\s+["\w]/, 5);
+  score("oracle", /\bvarchar2\s*\(|\bnvarchar2\s*\(|\bnumber\s*(?:\(|\b)|\bto_date\s*\(|\bto_timestamp\s*\(|\bclob\b|\braw\s*\(/, 4);
+  score("oracle", /\bsequence\b|\bsysdate\b|\bdual\b|\bpls_integer\b/, 2);
+
+  const ranked = Object.entries(scores).sort((a, b) => Number(b[1]) - Number(a[1])) as Array<[DbEngine, number]>;
+  const first = ranked[0];
+  if (!first) return undefined;
+  const [best, bestScore] = first;
+  const secondScore = ranked[1]?.[1] ?? 0;
+  return bestScore >= 4 && bestScore > secondScore ? best : undefined;
+}
+
+function displayEngine(engine: DbEngine): string {
+  const names: Record<DbEngine, string> = {
+    postgresql: "PostgreSQL",
+    mysql: "MySQL",
+    mariadb: "MariaDB",
+    sqlserver: "SQL Server",
+    oracle: "Oracle",
+    sqlite: "SQLite",
+    mongodb: "MongoDB"
+  };
+  return names[engine];
 }
 
 function inferColumns(rows: Record<string, unknown>[]): ColumnSchema[] {
@@ -360,8 +505,13 @@ function inferColumns(rows: Record<string, unknown>[]): ColumnSchema[] {
   });
 }
 
-async function importSql(filePath: string): Promise<CatalogTable[]> {
+async function importSql(filePath: string, engine: DbEngine): Promise<CatalogTable[]> {
   const sql = await readTextFile(filePath);
+  if (!sql.trim()) throw new Error("El script SQL esta vacio");
+  const detected = detectSqlEngine(sql);
+  if (detected && detected !== engine) {
+    throw new Error(`El script parece de ${displayEngine(detected)}. Selecciona ese motor o sube un archivo compatible con ${displayEngine(engine)}`);
+  }
   const tables = new Map<string, CatalogTable>();
   const identifier = String.raw`(?:\[[^\]]+\]|"[^"]+"|` + "`[^`]+`" + String.raw`|[\w$#@-]+)`;
   const qualified = String.raw`${identifier}(?:\s*\.\s*${identifier})*`;
@@ -416,7 +566,10 @@ async function importSql(filePath: string): Promise<CatalogTable[]> {
 }
 
 async function readTextFile(filePath: string): Promise<string> {
-  const bytes = await readFile(filePath);
+  return decodeText(await readFile(filePath));
+}
+
+function decodeText(bytes: Buffer): string {
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {

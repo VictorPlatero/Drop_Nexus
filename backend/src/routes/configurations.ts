@@ -13,10 +13,10 @@ import {
 import { withAdapter } from "../services/connectionManager.js";
 import {
   importDatabaseFile,
-  isOwnedCatalogReference,
-  removeOwnedCatalog
+  removeOwnedCatalog,
+  validateOwnedCatalogReference
 } from "../services/fileCatalog.js";
-import { maxDatabaseFileSizeBytes } from "../utils/uploadLimits.js";
+import { maxDatabaseFileSizeBytes, maxDatabaseFileSizeMb } from "../utils/uploadLimits.js";
 
 const configSchema = z.object({
   name: z.string().trim().min(2).max(100),
@@ -35,9 +35,9 @@ export async function configurationRoutes(app: FastifyInstance): Promise<void> {
   app.post("/database-upload/:engine", guards, async (request, reply) => {
     const engineResult = z.enum(DB_ENGINES).safeParse((request.params as { engine: string }).engine);
     if (!engineResult.success) return reply.code(400).send({ message: "Modelo de base de datos no válido" });
-    const file = await request.file({ limits: { files: 1, fileSize: maxDatabaseFileSizeBytes() } });
-    if (!file) return reply.code(400).send({ message: "Selecciona un archivo de base de datos" });
     try {
+      const file = await request.file({ limits: { files: 1, fileSize: maxDatabaseFileSizeBytes() } });
+      if (!file) return reply.code(400).send({ message: "Selecciona un archivo de base de datos" });
       const imported = await importDatabaseFile(file, request.user.id, engineResult.data);
       return reply.code(201).send({
         database: imported.catalogPath,
@@ -47,17 +47,22 @@ export async function configurationRoutes(app: FastifyInstance): Promise<void> {
       });
     } catch (error) {
       request.log.error({ error, engine: engineResult.data }, "Database file import failed");
-      return reply.code(400).send({
-        message: error instanceof Error ? error.message : "No se pudo importar la base de datos"
-      });
+      const statusCode = (error as { statusCode?: number }).statusCode;
+      const message = statusCode === 413
+        ? `El archivo supera el limite de ${maxDatabaseFileSizeMb()} MB`
+        : error instanceof Error ? error.message : "No se pudo importar la base de datos";
+      return reply.code(statusCode && statusCode < 500 ? statusCode : 400).send({ message });
     }
   });
 
   app.post("/", guards, async (request, reply) => {
     const parsed = configSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ message: "Configuración inválida", issues: parsed.error.flatten() });
-    if (!await isOwnedCatalogReference(parsed.data.database, request.user.id) || parsed.data.options?.storageMode !== "fileCatalog") {
+    if (parsed.data.options?.storageMode !== "fileCatalog") {
       return reply.code(400).send({ message: "Debes subir la base de datos desde tu computadora" });
+    }
+    if (!await validateOwnedCatalogReference(parsed.data.database, request.user.id, parsed.data.engine)) {
+      return reply.code(400).send({ message: "El archivo importado no pertenece al usuario o no corresponde al motor seleccionado" });
     }
     const config = await createConfiguration(request.user.id, parsed.data);
     return reply.code(201).send({ configuration: publicConfig(config) });
@@ -69,8 +74,14 @@ export async function configurationRoutes(app: FastifyInstance): Promise<void> {
     if (!current) return reply.code(404).send({ message: "Base de datos no encontrada" });
     const parsed = configSchema.partial().safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ message: "Configuración inválida", issues: parsed.error.flatten() });
-    if (parsed.data.database && !await isOwnedCatalogReference(parsed.data.database, request.user.id)) {
-      return reply.code(400).send({ message: "Archivo de base de datos no autorizado" });
+    if (parsed.data.engine && parsed.data.engine !== current.engine && !parsed.data.database) {
+      return reply.code(400).send({ message: "Para cambiar el motor debes subir un nuevo archivo compatible" });
+    }
+    if (parsed.data.database && parsed.data.options?.storageMode !== "fileCatalog") {
+      return reply.code(400).send({ message: "Debes subir la base de datos desde tu computadora" });
+    }
+    if (parsed.data.database && !await validateOwnedCatalogReference(parsed.data.database, request.user.id, parsed.data.engine ?? current.engine)) {
+      return reply.code(400).send({ message: "Archivo de base de datos no autorizado o incompatible con el motor seleccionado" });
     }
     const config = await updateConfiguration(id, request.user.id, parsed.data);
     if (!config) return reply.code(404).send({ message: "Base de datos no encontrada" });

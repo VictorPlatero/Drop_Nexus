@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Database, Upload, X } from "lucide-react";
+import { AlertTriangle, Database, Upload, X } from "lucide-react";
 import type { DbConfiguration } from "../services/api";
-import { detectDatabaseEngine, displayEngine, type DetectionResult } from "../utils/databaseFileDetector";
+import {
+  detectDatabaseEngine,
+  displayEngine,
+  maxDatabaseFileSizeMb,
+  validateDatabaseFile,
+  type DetectionResult
+} from "../utils/databaseFileDetector";
 
 export interface ConfigurationPayload {
   name: string;
@@ -42,6 +48,8 @@ export default function ConfigurationForm({
   const [busy, setBusy] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [detection, setDetection] = useState<DetectionResult | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [fileWarning, setFileWarning] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -50,10 +58,25 @@ export default function ConfigurationForm({
       engine: editing.engine,
       options: editing.options ?? {}
     } : empty);
+    setDetection(null);
+    setFileError(null);
+    setFileWarning(null);
   }, [editing]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    setFileError(null);
+    setFileWarning(null);
+    if (detecting) return;
+    if (form.databaseFile) {
+      const validation = await validateDatabaseFile(form.databaseFile, form.engine);
+      setFileError(validation.valid ? null : validation.message ?? "Archivo no valido");
+      setFileWarning(validation.warning ?? null);
+      if (!validation.valid) return;
+    } else if (!editing?.hasDatabase) {
+      setFileError("Selecciona un archivo de base de datos antes de guardar");
+      return;
+    }
     setBusy(true);
     try {
       await onSubmit(form);
@@ -62,7 +85,8 @@ export default function ConfigurationForm({
     }
   };
 
-  const currentFormat = formats[form.engine]!;
+  const currentFormat = formats[form.engine] ?? formats.postgresql;
+  const submitDisabled = busy || detecting || Boolean(fileError);
 
   return <form className="card space-y-5" onSubmit={submit}>
     <div className="flex items-start justify-between gap-4">
@@ -91,9 +115,15 @@ export default function ConfigurationForm({
         <select
           disabled={Boolean(editing)}
           value={form.engine}
-          onChange={(event) => {
-            setForm({ ...form, engine: event.target.value });
+          onChange={async (event) => {
+            const engine = event.target.value;
+            setForm({ ...form, engine });
             setDetection(null);
+            if (form.databaseFile) {
+              const validation = await validateDatabaseFile(form.databaseFile, engine);
+              setFileError(validation.valid ? null : validation.message ?? "Archivo no valido");
+              setFileWarning(validation.warning ?? null);
+            }
           }}
         >
           <option value="postgresql">PostgreSQL</option>
@@ -118,15 +148,24 @@ export default function ConfigurationForm({
           const file = event.target.files?.[0];
           if (file) {
             setDetecting(true);
+            setFileError(null);
+            setFileWarning(null);
             try {
               const detected = await detectDatabaseEngine(file);
+              const nextEngine = detected.engine ?? form.engine;
+              const validation = await validateDatabaseFile(file, nextEngine);
               setDetection(detected);
+              setFileError(validation.valid ? null : validation.message ?? "Archivo no valido");
+              setFileWarning(validation.warning ?? null);
               setForm({
                 ...form,
-                engine: detected.engine ?? form.engine,
+                engine: nextEngine,
                 name: form.name || file.name.replace(/\.(sql|bak|db|sqlite|sqlite3|json|ndjson)$/i, ""),
                 databaseFile: file
               });
+            } catch (error) {
+              setDetection(null);
+              setFileError(error instanceof Error ? error.message : "No se pudo leer el archivo seleccionado");
             } finally {
               setDetecting(false);
             }
@@ -149,6 +188,8 @@ export default function ConfigurationForm({
           onClick={() => {
             setForm({ ...form, databaseFile: undefined });
             setDetection(null);
+            setFileError(null);
+            setFileWarning(null);
             if (fileInput.current) fileInput.current.value = "";
           }}
         >
@@ -172,13 +213,19 @@ export default function ConfigurationForm({
       >
         <Upload className="mb-3 text-blue-400" size={26} />
         <span className="text-sm font-medium text-zinc-200">Seleccionar archivo desde la PC</span>
-        <span className="mt-2 text-xs text-zinc-500">{currentFormat.label} · Máximo 500 MB</span>
+        <span className="mt-2 text-xs text-zinc-500">{currentFormat.label} · Maximo {maxDatabaseFileSizeMb()} MB</span>
       </button>}
 
       {form.databaseFile && <button type="button" className="btn-secondary mt-3 flex items-center gap-2" onClick={() => fileInput.current?.click()}>
         <Upload size={16} />Elegir otro archivo
       </button>}
       {detecting && <p className="mt-3 text-xs text-blue-400">Detectando modelo de base de datos...</p>}
+      {fileError && <p className="mt-3 flex items-start gap-2 text-xs text-red-400">
+        <AlertTriangle className="mt-0.5 shrink-0" size={14} />{fileError}
+      </p>}
+      {!fileError && fileWarning && <p className="mt-3 flex items-start gap-2 text-xs text-amber-400">
+        <AlertTriangle className="mt-0.5 shrink-0" size={14} />{fileWarning}
+      </p>}
       {!detecting && detection && <p className={`mt-3 text-xs ${detection.engine ? "text-emerald-400" : "text-amber-400"}`}>
         {detection.engine ? `Detectado automáticamente: ${displayEngine(detection.engine)}. ` : "No se pudo detectar automáticamente. "}
         <span className="text-zinc-500">{detection.reason}.</span>
@@ -191,7 +238,7 @@ export default function ConfigurationForm({
 
     <div className="flex justify-end gap-3">
       <button type="button" className="btn-secondary" onClick={onCancel}>Cancelar</button>
-      <button disabled={busy} className="btn-primary">{busy ? "Importando..." : editing ? "Guardar cambios" : "Importar base de datos"}</button>
+      <button disabled={submitDisabled} className="btn-primary">{busy ? "Importando..." : editing ? "Guardar cambios" : "Importar base de datos"}</button>
     </div>
   </form>;
 }
