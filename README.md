@@ -107,3 +107,5 @@ El replicador permite selección múltiple de tablas, mapeo y transformación de
 Las ejecuciones incrementales por offset son adecuadas cuando el origen agrega filas de forma estable. No constituyen CDC ni garantizan exact-once si se eliminan o reordenan filas durante el proceso. Para ese nivel se requiere WAL, binlog o change streams y una cola persistente.
 
 La propuesta principal se centra en la app de replicación: importar bases, seleccionar origen y destino, mapear tablas y columnas, validar el flujo y ejecutar réplicas con historial, reintentos y reportes.
+
+Las bases importadas como archivo pueden descargarse después de ser modificadas por una réplica en formato Excel (`.xlsx`), SQLite (`.sqlite`) o JSON. La importación acepta SQLite, scripts SQL, MongoDB JSON/NDJSON, Excel/CSV y respaldos SQL Server `.bak` cuando se configura un SQL Server temporal de restauración con las variables `SQLSERVER_RESTORE_*`.

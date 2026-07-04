@@ -1,18 +1,21 @@
 import { createWriteStream } from "node:fs";
 import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { randomUUID } from "node:crypto";
 import { gzip, gunzip } from "node:zlib";
 import { promisify } from "node:util";
-import sqlite3 from "sqlite3";
+import type { Database as SQLiteDatabase } from "sqlite3";
 import sql from "mssql";
 import type { MultipartFile } from "@fastify/multipart";
 import type { ColumnSchema, DbEngine } from "../types/index.js";
 import { SQLServerAdapter } from "../adapters/SQLServerAdapter.js";
 import { maxDatabaseFileSizeBytes, maxDatabaseFileSizeMb } from "../utils/uploadLimits.js";
 import { pool } from "../db/database.js";
+
+const require = createRequire(import.meta.url);
 
 export interface CatalogTable {
   name: string;
@@ -71,6 +74,7 @@ export function isOwnedCatalogPath(filePath: string, userId: string): boolean {
 function extensionsFor(engine: DbEngine): string[] {
   if (engine === "sqlite") return [".db", ".sqlite", ".sqlite3"];
   if (engine === "mongodb") return [".json", ".ndjson"];
+  if (engine === "excel") return [".xlsx", ".xls", ".csv"];
   if (engine === "sqlserver") return [".sql", ".bak"];
   return [".sql"];
 }
@@ -135,7 +139,7 @@ async function validateStoredUpload(filePath: string, extension: string): Promis
     return;
   }
 
-  if (extension === ".bak") return;
+  if (extension === ".bak" || extension === ".xlsx" || extension === ".xls") return;
   if (head.includes(0)) throw new Error("El archivo parece binario. Sube un export compatible con el motor seleccionado");
   const sample = decodeText(head);
   if (!sample.trim()) throw new Error("El archivo no contiene datos legibles");
@@ -179,9 +183,11 @@ export async function importDatabaseFile(file: MultipartFile, userId: string, en
       ? await importSQLite(rawPath)
       : engine === "mongodb"
         ? await importMongo(rawPath, extension, path.basename(originalName, extension))
-        : engine === "sqlserver" && extension === ".bak"
-          ? await importSqlServerBackup(rawPath)
-          : await importSql(rawPath, engine);
+        : engine === "excel"
+          ? await importExcel(rawPath)
+          : engine === "sqlserver" && extension === ".bak"
+            ? await importSqlServerBackup(rawPath)
+            : await importSql(rawPath, engine);
     if (!tables.length) throw new Error("No se encontraron tablas o colecciones importables");
     const catalog: FileCatalog = { version: 1, sourceEngine: engine, originalName, tables };
     catalogPath = process.env.NODE_ENV === "production"
@@ -351,6 +357,30 @@ export async function writeCatalog(filePath: string, catalog: FileCatalog): Prom
   await writeFile(filePath, JSON.stringify(catalog), "utf8");
 }
 
+export async function exportCatalog(filePath: string, format: "json" | "xlsx" | "sqlite"): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
+  const catalog = await readCatalog(filePath);
+  const baseName = safeDownloadName(catalog.originalName.replace(/\.[^.]+$/, "") || "database");
+  if (format === "json") {
+    return {
+      buffer: Buffer.from(JSON.stringify(catalog, null, 2), "utf8"),
+      contentType: "application/json; charset=utf-8",
+      filename: `${baseName}-modificada.json`
+    };
+  }
+  if (format === "xlsx") {
+    return {
+      buffer: catalogToExcel(catalog),
+      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      filename: `${baseName}-modificada.xlsx`
+    };
+  }
+  return {
+    buffer: await catalogToSQLite(catalog),
+    contentType: "application/vnd.sqlite3",
+    filename: `${baseName}-modificada.sqlite`
+  };
+}
+
 export async function removeOwnedCatalog(filePath: string | undefined, userId: string): Promise<void> {
   if (filePath?.startsWith(DATABASE_CATALOG_PREFIX)) {
     await pool.query(
@@ -362,13 +392,18 @@ export async function removeOwnedCatalog(filePath: string | undefined, userId: s
   if (filePath && isOwnedCatalogPath(filePath, userId)) await rm(filePath, { force: true }).catch(() => undefined);
 }
 
-function sqliteAll<T>(db: sqlite3.Database, sql: string): Promise<T[]> {
+function sqliteAll<T>(db: SQLiteDatabase, sql: string): Promise<T[]> {
   return new Promise((resolve, reject) => db.all(sql, (error, rows) => error ? reject(error) : resolve(rows as T[])));
 }
 
+function sqliteRun(db: SQLiteDatabase, sql: string, params: unknown[] = []): Promise<void> {
+  return new Promise((resolve, reject) => db.run(sql, params, (error) => error ? reject(error) : resolve()));
+}
+
 async function importSQLite(filePath: string): Promise<CatalogTable[]> {
-  const db = await new Promise<sqlite3.Database>((resolve, reject) => {
-    const database = new sqlite3.Database(filePath, sqlite3.OPEN_READONLY, (error) => error ? reject(error) : resolve(database));
+  const sqlite3 = loadSqlite3();
+  const db = await new Promise<SQLiteDatabase>((resolve, reject) => {
+    const database = new sqlite3.Database(filePath, sqlite3.OPEN_READONLY, (error: Error | null) => error ? reject(error) : resolve(database));
   });
   try {
     const tableRows = await sqliteAll<{ name: string }>(db, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
@@ -490,9 +525,156 @@ function displayEngine(engine: DbEngine): string {
     sqlserver: "SQL Server",
     oracle: "Oracle",
     sqlite: "SQLite",
-    mongodb: "MongoDB"
+    mongodb: "MongoDB",
+    excel: "Excel"
   };
   return names[engine];
+}
+
+function loadXlsx(): any {
+  try {
+    return require("xlsx");
+  } catch {
+    throw new Error("Soporte Excel no instalado. Ejecuta npm install en backend para instalar xlsx.");
+  }
+}
+
+function loadSqlite3(): any {
+  try {
+    return require("sqlite3");
+  } catch {
+    throw new Error("Soporte SQLite no instalado correctamente. Ejecuta npm install en backend para compilar sqlite3.");
+  }
+}
+
+async function importExcel(filePath: string): Promise<CatalogTable[]> {
+  const XLSX = loadXlsx();
+  const workbook = XLSX.readFile(filePath, { cellDates: true });
+  if (!workbook.SheetNames.length) throw new Error("El archivo Excel no contiene hojas");
+  const tables = workbook.SheetNames.map((sheetName: string): CatalogTable | null => {
+    const sheet = workbook.Sheets[sheetName];
+    const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true }) as unknown[][];
+    const headerIndex = matrix.findIndex((row) => row.some((cell) => cell !== null && cell !== undefined && String(cell).trim() !== ""));
+    if (headerIndex < 0) return null;
+    const headers = uniqueColumnNames(matrix[headerIndex]!
+      .map((cell, index) => normalizeColumnName(cell, index))
+      .filter(Boolean));
+    if (!headers.length) return null;
+    const rows = matrix.slice(headerIndex + 1)
+      .filter((row) => row.some((cell) => cell !== null && cell !== undefined && String(cell).trim() !== ""))
+      .map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index] ?? null])));
+    return {
+      name: sheetName,
+      columns: inferColumnsFromHeaders(headers, rows),
+      rows
+    };
+  }).filter((table: CatalogTable | null): table is CatalogTable => Boolean(table));
+  if (!tables.length) throw new Error("El archivo Excel no tiene hojas con encabezados o datos importables");
+  return tables;
+}
+
+function catalogToExcel(catalog: FileCatalog): Buffer {
+  const XLSX = loadXlsx();
+  const workbook = XLSX.utils.book_new();
+  for (const [index, table] of catalog.tables.entries()) {
+    const columns = columnsForExport(table);
+    if (!columns.length) continue;
+    const rows = table.rows.length
+      ? table.rows.map((row) => Object.fromEntries(columns.map((column) => [column, serializeCell(row[column])])))
+      : [Object.fromEntries(columns.map((column) => [column, null]))];
+    const sheet = XLSX.utils.json_to_sheet(rows, { header: columns });
+    XLSX.utils.book_append_sheet(workbook, sheet, safeSheetName(table.name, index));
+  }
+  if (!workbook.SheetNames.length) {
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([["Sin datos"]]), "Base");
+  }
+  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+}
+
+async function catalogToSQLite(catalog: FileCatalog): Promise<Buffer> {
+  const directory = path.join(os.tmpdir(), "drop-nexus", "exports");
+  await mkdir(directory, { recursive: true });
+  const filePath = path.join(directory, `${randomUUID()}.sqlite`);
+  const sqlite3 = loadSqlite3();
+  const db = await new Promise<SQLiteDatabase>((resolve, reject) => {
+    const database = new sqlite3.Database(filePath, (error: Error | null) => error ? reject(error) : resolve(database));
+  });
+  try {
+    for (const table of catalog.tables) {
+      const columns = columnsForExport(table);
+      if (!columns.length) continue;
+      const tableName = quoteSQLiteIdentifier(table.name);
+      await sqliteRun(db, `CREATE TABLE ${tableName} (${columns.map((column) => `${quoteSQLiteIdentifier(column)} ${sqliteType(table.columns.find((item) => item.name === column)?.dataType ?? "TEXT")}`).join(", ")})`);
+      const insert = `INSERT INTO ${tableName} (${columns.map(quoteSQLiteIdentifier).join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`;
+      for (const row of table.rows) {
+        await sqliteRun(db, insert, columns.map((column) => serializeCell(row[column])));
+      }
+    }
+  } finally {
+    await new Promise<void>((resolve) => db.close(() => resolve()));
+  }
+  try {
+    return await readFile(filePath);
+  } finally {
+    await rm(filePath, { force: true }).catch(() => undefined);
+  }
+}
+
+function normalizeColumnName(value: unknown, index: number): string {
+  const text = String(value ?? "").trim();
+  return text || `columna_${index + 1}`;
+}
+
+function uniqueColumnNames(values: string[]): string[] {
+  const seen = new Map<string, number>();
+  return values.map((value, index) => {
+    const base = value || `columna_${index + 1}`;
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    return count ? `${base}_${count + 1}` : base;
+  });
+}
+
+function inferColumnsFromHeaders(headers: string[], rows: Record<string, unknown>[]): ColumnSchema[] {
+  return headers.map((name) => {
+    const values = rows.map((row) => row[name]).filter((value) => value !== undefined && value !== null && value !== "");
+    const sample = values[0];
+    const dataType = sample instanceof Date ? "date" : typeof sample === "number" ? "number" : typeof sample === "boolean" ? "boolean" : "text";
+    return { name, dataType, nullable: values.length < rows.length, primaryKey: false, foreignKey: false };
+  });
+}
+
+function columnsForExport(table: CatalogTable): string[] {
+  const defined = table.columns.map((column) => column.name);
+  const fromRows = [...new Set(table.rows.flatMap((row) => Object.keys(row)))];
+  return [...new Set([...defined, ...fromRows])];
+}
+
+function serializeCell(value: unknown): unknown {
+  if (value === undefined) return null;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "object" && value !== null) return JSON.stringify(value);
+  return value;
+}
+
+function safeSheetName(value: string, index: number): string {
+  return value.replace(/[\\/?*[\]:]/g, " ").trim().slice(0, 31) || `Tabla ${index + 1}`;
+}
+
+function safeDownloadName(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "database";
+}
+
+function quoteSQLiteIdentifier(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+function sqliteType(type: string): string {
+  const lower = type.toLowerCase();
+  if (/int|bool/.test(lower)) return "INTEGER";
+  if (/real|float|double|decimal|numeric|number/.test(lower)) return "REAL";
+  if (/blob|binary/.test(lower)) return "BLOB";
+  return "TEXT";
 }
 
 function inferColumns(rows: Record<string, unknown>[]): ColumnSchema[] {

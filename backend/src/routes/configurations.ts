@@ -12,6 +12,7 @@ import {
 } from "../services/dbConfigService.js";
 import { withAdapter } from "../services/connectionManager.js";
 import {
+  exportCatalog,
   importDatabaseFile,
   removeOwnedCatalog,
   validateOwnedCatalogReference
@@ -24,6 +25,7 @@ const configSchema = z.object({
   database: z.string().trim().min(1).max(1000),
   options: z.record(z.string(), z.unknown()).optional()
 });
+const exportFormatSchema = z.enum(["xlsx", "sqlite", "json"]);
 
 export async function configurationRoutes(app: FastifyInstance): Promise<void> {
   const guards = { preHandler: [authenticate] };
@@ -105,6 +107,30 @@ export async function configurationRoutes(app: FastifyInstance): Promise<void> {
     const config = await getConfiguration((request.params as { id: string }).id, request.user.id);
     if (!config) return reply.code(404).send({ message: "Base de datos no encontrada" });
     return withAdapter(config, (adapter) => adapter.testConnection());
+  });
+
+  app.get("/:id/export/:format", guards, async (request, reply) => {
+    const { id, format } = request.params as { id: string; format: string };
+    const parsedFormat = exportFormatSchema.safeParse(format);
+    if (!parsedFormat.success) return reply.code(400).send({ message: "Formato de descarga no valido. Usa xlsx, sqlite o json." });
+    const config = await getConfiguration(id, request.user.id);
+    if (!config) return reply.code(404).send({ message: "Base de datos no encontrada" });
+    if (!config.database || config.options?.storageMode !== "fileCatalog") {
+      return reply.code(400).send({ message: "Solo se pueden descargar bases importadas como archivo. Las conexiones externas deben exportarse desde su motor." });
+    }
+    if (!await validateOwnedCatalogReference(config.database, request.user.id, config.engine)) {
+      return reply.code(400).send({ message: "Archivo de base de datos no autorizado o incompatible con el motor seleccionado" });
+    }
+    try {
+      const exported = await exportCatalog(config.database, parsedFormat.data);
+      return reply
+        .header("Content-Type", exported.contentType)
+        .header("Content-Disposition", `attachment; filename="${exported.filename}"`)
+        .send(exported.buffer);
+    } catch (error) {
+      request.log.error({ error, id, format }, "Database export failed");
+      return reply.code(400).send({ message: error instanceof Error ? error.message : "No se pudo exportar la base modificada" });
+    }
   });
 
   app.get("/:id/tables", guards, async (request, reply) => {

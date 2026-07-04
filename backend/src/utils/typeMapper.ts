@@ -42,6 +42,10 @@ const mappings: Record<Exclude<DbEngine, "mongodb">, Record<CanonicalType, strin
   sqlite: {
     boolean: "INTEGER", integer: "INTEGER", bigint: "INTEGER", decimal: "REAL",
     datetime: "TEXT", binary: "BLOB", json: "TEXT", uuid: "TEXT", text: "TEXT"
+  },
+  excel: {
+    boolean: "TEXT", integer: "TEXT", bigint: "TEXT", decimal: "TEXT",
+    datetime: "TEXT", binary: "TEXT", json: "TEXT", uuid: "TEXT", text: "TEXT"
   }
 };
 

@@ -24,7 +24,8 @@ const formats: Record<string, { accept: string; label: string }> = {
   sqlserver: { accept: ".sql,.bak,text/plain,application/octet-stream", label: "SQL Server (.sql o respaldo .bak)" },
   oracle: { accept: ".sql,text/plain", label: "Script SQL de Oracle (.sql)" },
   sqlite: { accept: ".db,.sqlite,.sqlite3,application/vnd.sqlite3", label: "Base SQLite (.db, .sqlite, .sqlite3)" },
-  mongodb: { accept: ".json,.ndjson,application/json", label: "Exportación MongoDB (.json, .ndjson)" }
+  mongodb: { accept: ".json,.ndjson,application/json", label: "Exportación MongoDB (.json, .ndjson)" },
+  excel: { accept: ".xlsx,.xls,.csv,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", label: "Libro Excel o CSV (.xlsx, .xls, .csv)" }
 };
 
 const empty: ConfigurationPayload = {
@@ -33,7 +34,7 @@ const empty: ConfigurationPayload = {
   options: {}
 };
 
-const allSupportedFormats = ".sql,.bak,.db,.sqlite,.sqlite3,.json,.ndjson,text/plain,application/json,application/octet-stream,application/vnd.sqlite3";
+const allSupportedFormats = ".sql,.bak,.db,.sqlite,.sqlite3,.json,.ndjson,.xlsx,.xls,.csv,text/plain,text/csv,application/json,application/octet-stream,application/vnd.sqlite3,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 export default function ConfigurationForm({
   editing,
@@ -133,6 +134,7 @@ export default function ConfigurationForm({
           <option value="oracle">Oracle</option>
           <option value="sqlite">SQLite</option>
           <option value="mongodb">MongoDB</option>
+          <option value="excel">Excel / CSV</option>
         </select>
       </div>
     </div>
@@ -160,7 +162,7 @@ export default function ConfigurationForm({
               setForm({
                 ...form,
                 engine: nextEngine,
-                name: form.name || file.name.replace(/\.(sql|bak|db|sqlite|sqlite3|json|ndjson)$/i, ""),
+                name: form.name || file.name.replace(/\.(sql|bak|db|sqlite|sqlite3|json|ndjson|xlsx|xls|csv)$/i, ""),
                 databaseFile: file
               });
             } catch (error) {

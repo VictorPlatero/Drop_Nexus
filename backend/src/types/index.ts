@@ -1,6 +1,6 @@
 import type { FastifyRequest } from "fastify";
 
-export const DB_ENGINES = ["postgresql", "mysql", "mariadb", "sqlserver", "oracle", "sqlite", "mongodb"] as const;
+export const DB_ENGINES = ["postgresql", "mysql", "mariadb", "sqlserver", "oracle", "sqlite", "mongodb", "excel"] as const;
 export type DbEngine = (typeof DB_ENGINES)[number];
 export type UserRole = "user" | "admin";
 

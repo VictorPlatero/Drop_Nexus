@@ -1,4 +1,4 @@
-export type DetectableEngine = "postgresql" | "mysql" | "mariadb" | "sqlserver" | "oracle" | "sqlite" | "mongodb";
+export type DetectableEngine = "postgresql" | "mysql" | "mariadb" | "sqlserver" | "oracle" | "sqlite" | "mongodb" | "excel";
 
 export interface DetectionResult {
   engine?: DetectableEngine;
@@ -22,7 +22,8 @@ const engineExtensions: Record<DetectableEngine, string[]> = {
   sqlserver: [".sql", ".bak"],
   oracle: [".sql"],
   sqlite: [".db", ".sqlite", ".sqlite3"],
-  mongodb: [".json", ".ndjson"]
+  mongodb: [".json", ".ndjson"],
+  excel: [".xlsx", ".xls", ".csv"]
 };
 
 const globalExtensions = new Set(Object.values(engineExtensions).flat());
@@ -59,7 +60,7 @@ export async function validateDatabaseFile(file: File | undefined, engine: strin
 
   const extension = fileExtension(name);
   if (!extension || !globalExtensions.has(extension)) {
-    return { valid: false, message: "Formato no soportado. Usa .sql, .bak, .db, .sqlite, .sqlite3, .json o .ndjson" };
+    return { valid: false, message: "Formato no soportado. Usa .sql, .bak, .db, .sqlite, .sqlite3, .json, .ndjson, .xlsx, .xls o .csv" };
   }
 
   const expected = engineExtensions[engine as DetectableEngine];
@@ -86,7 +87,7 @@ export async function validateDatabaseFile(file: File | undefined, engine: strin
     if (header !== SQLITE_HEADER) return { valid: false, message: "El archivo no tiene una cabecera SQLite valida" };
   }
 
-  if ([".sql", ".json", ".ndjson"].includes(extension)) {
+  if ([".sql", ".json", ".ndjson", ".csv"].includes(extension)) {
     const sampleBuffer = await file.slice(0, Math.min(file.size, 4096)).arrayBuffer();
     const sampleText = new TextDecoder().decode(sampleBuffer);
     if (sampleText.includes("\u0000")) return { valid: false, message: "El archivo parece binario. Selecciona un export compatible" };
@@ -103,6 +104,10 @@ export async function detectDatabaseEngine(file: File): Promise<DetectionResult>
 
   if (extension === "bak") {
     return { engine: "sqlserver", confidence: "high", reason: "Respaldo binario de SQL Server (.bak)" };
+  }
+
+  if (["xlsx", "xls", "csv"].includes(extension)) {
+    return { engine: "excel", confidence: "high", reason: "Archivo tabular compatible con Excel" };
   }
 
   if (["db", "sqlite", "sqlite3"].includes(extension)) {
@@ -132,7 +137,7 @@ export async function detectDatabaseEngine(file: File): Promise<DetectionResult>
   }
 
   const sample = (await file.slice(0, 256 * 1024).text()).toLowerCase();
-  const scores: Record<Exclude<DetectableEngine, "sqlite" | "mongodb">, number> = {
+  const scores: Record<Exclude<DetectableEngine, "sqlite" | "mongodb" | "excel">, number> = {
     postgresql: 0,
     mysql: 0,
     mariadb: 0,
@@ -181,7 +186,8 @@ export function displayEngine(engine: DetectableEngine): string {
     sqlserver: "SQL Server",
     oracle: "Oracle",
     sqlite: "SQLite",
-    mongodb: "MongoDB"
+    mongodb: "MongoDB",
+    excel: "Excel"
   };
   return names[engine];
 }

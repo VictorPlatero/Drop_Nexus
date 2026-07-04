@@ -69,6 +69,13 @@ const intents: AssistantIntent[] = [
     })
   },
   {
+    keys: ["descargar", "download", "exportar", "modificada", "resultado", "xlsx", "excel", "sqlite", "json"],
+    answer: () => ({
+      text: "Despues de replicar, ve a Bases de datos y usa Descargar base modificada en la tarjeta del destino. Puedes bajarla como Excel, SQLite o JSON. Si el destino es una conexion externa, exportala desde ese motor porque no existe un archivo local que descargar.",
+      suggestions: mergeSuggestions("configurations", ["replication-flow"])
+    })
+  },
+  {
     keys: ["error", "fallo", "falla", "failed", "rechazado", "rechazados", "timeout", "detuvo", "lento", "reintento", "reintentar", "duplicado", "incompatible"],
     answer: () => ({
       text: [

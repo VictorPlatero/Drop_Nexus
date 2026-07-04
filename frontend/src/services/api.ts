@@ -36,7 +36,11 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 export async function downloadFile(path: string, fallbackName: string): Promise<void> {
   const token = localStorage.getItem("token");
   const response = await fetch(`${API_URL}/api${path}`, { headers: { Authorization: `Bearer ${token}` } });
-  if (!response.ok) throw new ApiError("No se pudo descargar el archivo", response.status);
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? "";
+    const body = contentType.includes("application/json") ? await response.json() : await response.text();
+    throw new ApiError(typeof body === "string" ? body : body.message ?? "No se pudo descargar el archivo", response.status);
+  }
   const url = URL.createObjectURL(await response.blob());
   const disposition = response.headers.get("content-disposition") ?? "";
   const match = disposition.match(/filename="([^"]+)"/);

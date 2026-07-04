@@ -16,6 +16,7 @@ export function createAdapter(config: DbConfiguration): DatabaseAdapter {
     case "sqlserver": return new SQLServerAdapter(config);
     case "sqlite": return new SQLiteAdapter(config);
     case "mongodb": return new MongoDBAdapter(config);
+    case "excel": throw new Error("Excel solo esta disponible mediante archivos importados");
     case "oracle": throw new Error("Oracle solo está disponible mediante archivos importados");
   }
 }

@@ -10,9 +10,10 @@ Database Nexus es una consola multi-tenant para configurar, supervisar y ejecuta
 
 ## Capacidades
 
-- Orientar sobre importacion de bases en la seccion Bases de datos.
+- Orientar sobre importacion de bases en la seccion Bases de datos, incluyendo SQLite, SQL, .bak, MongoDB JSON/NDJSON y Excel/CSV.
 - Preparar flujos de replicacion con origen, destino, tablas, mapeos, transformaciones, validacion y ejecucion.
 - Recomendar modos de escritura: insertar, upsert, reemplazar o vaciar y recargar.
+- Explicar como descargar una base importada ya modificada en Excel, SQLite o JSON.
 - Dar pasos de solucion para errores de conexion, tablas faltantes, tipos incompatibles, rechazos por lote y timeouts.
 
 ## Reglas de respuesta

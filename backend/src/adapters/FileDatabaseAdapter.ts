@@ -28,6 +28,7 @@ export class FileDatabaseAdapter implements DatabaseAdapter {
   async tableExists(name: string): Promise<boolean> { return this.data().tables.some((table) => table.name === name); }
   previewCreateTable(table: string, columns: ColumnSchema[]): string {
     if (this.config.engine === "mongodb") return JSON.stringify({ create: table, fields: columns }, null, 2);
+    if (this.config.engine === "excel") return `Se creara una hoja "${table}" con columnas: ${columns.map((column) => column.name).join(", ")}`;
     return buildCreateTableSql(table, columns, this.config.engine);
   }
   async createTable(name: string, columns: ColumnSchema[]): Promise<void> {

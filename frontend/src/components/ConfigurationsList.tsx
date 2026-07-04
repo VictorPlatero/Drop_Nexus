@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { CheckCircle2, Clock3, Database, Edit3, Plus, Trash2, XCircle } from "lucide-react";
-import { api, type DbConfiguration, uploadDatabase } from "../services/api";
+import { CheckCircle2, Clock3, Database, Download, Edit3, Plus, Trash2, XCircle } from "lucide-react";
+import { api, downloadFile, type DbConfiguration, uploadDatabase } from "../services/api";
 import ConfigurationForm, { type ConfigurationPayload } from "./ConfigurationForm";
 
 export default function ConfigurationsList({
@@ -72,6 +72,14 @@ export default function ConfigurationsList({
     }
   };
 
+  const downloadModified = async (config: DbConfiguration, format: "xlsx" | "sqlite" | "json") => {
+    try {
+      await downloadFile(`/configurations/${config.id}/export/${format}`, `${config.name}-modificada.${format}`);
+    } catch (error) {
+      notify("error", error instanceof Error ? error.message : "No se pudo descargar la base modificada");
+    }
+  };
+
   if (formOpen) {
     return <ConfigurationForm
       editing={editing}
@@ -125,6 +133,14 @@ export default function ConfigurationsList({
         <div className="mt-4 flex items-center gap-2 rounded-button border border-line bg-[#0D0D0D] px-3 py-2 text-xs text-zinc-500">
           <Clock3 size={14} />
           Disponible por {remainingTime(config.expiresAt)}
+        </div>
+        <div className="mt-4 rounded-button border border-line bg-[#0D0D0D] p-3">
+          <div className="mb-2 flex items-center gap-2 text-xs text-zinc-500"><Download size={14} />Descargar base modificada</div>
+          <div className="grid grid-cols-3 gap-2">
+            <button className="btn-secondary px-2 py-2 text-xs" onClick={() => downloadModified(config, "xlsx")}>Excel</button>
+            <button className="btn-secondary px-2 py-2 text-xs" onClick={() => downloadModified(config, "sqlite")}>SQLite</button>
+            <button className="btn-secondary px-2 py-2 text-xs" onClick={() => downloadModified(config, "json")}>JSON</button>
+          </div>
         </div>
         <div className="mt-6 flex gap-2">
           <button className="btn-secondary flex-1" disabled={testing === config.id} onClick={() => test(config.id)}>
