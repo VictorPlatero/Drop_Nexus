@@ -1,8 +1,21 @@
-import sqlite3 from "sqlite3";
+import { createRequire } from "node:module";
+import type sqlite3 from "sqlite3";
 import type { DatabaseAdapter } from "./DatabaseAdapter.js";
 import { qualifiedIdentifier } from "./DatabaseAdapter.js";
 import type { ColumnSchema, ConnectionTest, DbConfiguration, TableSchema } from "../types/index.js";
 import { buildCreateTableSql } from "../utils/typeMapper.js";
+
+const require = createRequire(import.meta.url);
+let sqlite3Module: typeof sqlite3 | undefined;
+
+function loadSqlite3(): typeof sqlite3 {
+  try {
+    sqlite3Module ??= require("sqlite3") as typeof sqlite3;
+    return sqlite3Module;
+  } catch {
+    throw new Error("Soporte SQLite no instalado correctamente. Ejecuta npm install en backend para compilar sqlite3.");
+  }
+}
 
 export class SQLiteAdapter implements DatabaseAdapter {
   private database?: sqlite3.Database;
@@ -12,6 +25,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     if (this.database) return;
     const filename = this.config.database;
     if (!filename) throw new Error("SQLite requiere la ruta del archivo en database");
+    const sqlite3 = loadSqlite3();
     this.database = await new Promise((resolve, reject) => {
       const db = new sqlite3.Database(filename, (error) => error ? reject(error) : resolve(db));
     });
