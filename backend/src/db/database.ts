@@ -24,6 +24,9 @@ export function publicDatabaseErrorMessage(error: unknown): string {
   ) {
     return "La base de datos rechazo la conexion. Corrige DATABASE_URL en Render y espera unos minutos si el proveedor bloqueo conexiones por autenticacion fallida.";
   }
+  if (lower.includes("self-signed certificate") || lower.includes("certificate chain")) {
+    return "No se pudo validar el certificado SSL de la base de datos. La aplicacion forzara SSL compatible con Supabase.";
+  }
   return "La base de datos no esta disponible. Revisa DATABASE_URL en Render.";
 }
 
@@ -38,6 +41,8 @@ function isDatabaseConnectionError(error: unknown): boolean {
     "authentication failed",
     "password authentication failed",
     "too many authentication failures",
+    "self-signed certificate",
+    "certificate chain",
     "connection terminated",
     "connect timeout",
     "timeout exceeded"
@@ -56,8 +61,8 @@ function createPool(): PgPool {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required");
   if (!metadataPool) {
     metadataPool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined,
+      connectionString: databaseConnectionString(),
+      ssl: shouldUseSsl() ? { rejectUnauthorized: false } : undefined,
       max: 10,
       connectionTimeoutMillis: 5000,
       idleTimeoutMillis: 30000
@@ -65,6 +70,25 @@ function createPool(): PgPool {
     metadataPool.on("error", (error) => logger.error({ error }, "Metadata database pool error"));
   }
   return metadataPool;
+}
+
+function databaseConnectionString(): string {
+  const value = process.env.DATABASE_URL;
+  if (!value) throw new Error("DATABASE_URL is required");
+  try {
+    const url = new URL(value);
+    for (const key of ["sslmode", "sslcert", "sslkey", "sslrootcert"]) {
+      url.searchParams.delete(key);
+    }
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+function shouldUseSsl(): boolean {
+  const value = process.env.DATABASE_URL ?? "";
+  return process.env.NODE_ENV === "production" || value.includes("supabase.com") || value.includes("sslmode=");
 }
 
 export const pool = {
