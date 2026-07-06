@@ -9,7 +9,7 @@ import { existsSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { logger } from "./utils/logger.js";
-import { initializeDatabase } from "./db/database.js";
+import { initializeDatabase, publicDatabaseErrorMessage } from "./db/database.js";
 import { seedAdmin } from "./seed/adminSeed.js";
 import { registerRateLimit } from "./middleware/rateLimit.js";
 import { authRoutes } from "./routes/auth.js";
@@ -75,9 +75,10 @@ if (existsSync(frontendRoot)) {
 
 app.setErrorHandler((error, request, reply) => {
   request.log.error({ error }, "Request failed");
-  const knownError = error as Error & { statusCode?: number };
-  const status = knownError.statusCode && knownError.statusCode < 500 ? knownError.statusCode : 500;
-  return reply.code(status).send({ message: status === 500 ? "Error interno del servidor" : knownError.message });
+  const knownError = error as Error & { statusCode?: number; exposeMessage?: boolean };
+  const status = knownError.statusCode && knownError.statusCode >= 400 && knownError.statusCode < 600 ? knownError.statusCode : 500;
+  const exposeMessage = status < 500 || knownError.exposeMessage === true;
+  return reply.code(status).send({ message: exposeMessage ? knownError.message : "Error interno del servidor" });
 });
 
 try {
@@ -89,7 +90,7 @@ try {
   databaseStatus = "ready";
 } catch (error) {
   databaseStatus = "unavailable";
-  databaseError = error instanceof Error ? error.message : String(error);
+  databaseError = publicDatabaseErrorMessage(error);
   logger.error({ error }, "Database initialization failed; API started in degraded mode");
 }
 
