@@ -1,19 +1,37 @@
 import pg from "pg";
+import type { Pool as PgPool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from "pg";
 import { logger } from "../utils/logger.js";
 
 const { Pool } = pg;
+let metadataPool: PgPool | undefined;
 
-if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required");
+function createPool(): PgPool {
+  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required");
+  if (!metadataPool) {
+    metadataPool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined,
+      max: 10,
+      connectionTimeoutMillis: 5000,
+      idleTimeoutMillis: 30000
+    });
+    metadataPool.on("error", (error) => logger.error({ error }, "Metadata database pool error"));
+  }
+  return metadataPool;
+}
 
-export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined,
-  max: 10,
-  connectionTimeoutMillis: 5000,
-  idleTimeoutMillis: 30000
-});
-
-pool.on("error", (error) => logger.error({ error }, "Metadata database pool error"));
+export const pool = {
+  query<T extends QueryResultRow = any>(queryTextOrConfig: string | QueryConfig, values?: unknown[]): Promise<QueryResult<T>> {
+    const db = createPool();
+    return values ? db.query<T>(queryTextOrConfig as string, values) : db.query<T>(queryTextOrConfig);
+  },
+  connect(): Promise<PoolClient> {
+    return createPool().connect();
+  },
+  end(): Promise<void> {
+    return metadataPool ? metadataPool.end() : Promise.resolve();
+  }
+};
 
 export async function initializeDatabase(): Promise<void> {
   await pool.query(`

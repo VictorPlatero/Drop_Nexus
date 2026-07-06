@@ -6,6 +6,7 @@ import jwt from "@fastify/jwt";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { existsSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { logger } from "./utils/logger.js";
 import { initializeDatabase } from "./db/database.js";
@@ -24,8 +25,18 @@ import { assistantRoutes } from "./routes/assistant.js";
 import { cleanupExpiredConfigurations, startExpirationCleanup } from "./services/expirationService.js";
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
-const jwtSecret = process.env.JWT_SECRET;
-if (!jwtSecret || jwtSecret.length < 32) throw new Error("JWT_SECRET must contain at least 32 characters");
+let databaseStatus: "starting" | "ready" | "unavailable" = "starting";
+let databaseError: string | undefined;
+let jwtSecret = process.env.JWT_SECRET;
+if (!jwtSecret || jwtSecret.length < 32) {
+  const message = "JWT_SECRET must contain at least 32 characters";
+  if (process.env.NODE_ENV === "production") {
+    jwtSecret = randomBytes(32).toString("hex");
+    logger.warn(`${message}; using an ephemeral secret for this process`);
+  } else {
+    throw new Error(message);
+  }
+}
 
 await app.register(helmet);
 await app.register(cors, {
@@ -38,7 +49,12 @@ await app.register(multipart, {
 });
 await registerRateLimit(app);
 
-app.get("/api/status", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
+app.get("/api/status", async () => ({
+  status: databaseStatus === "ready" ? "ok" : "degraded",
+  database: databaseStatus,
+  databaseError,
+  timestamp: new Date().toISOString()
+}));
 await app.register(authRoutes, { prefix: "/api/auth" });
 await app.register(userRoutes, { prefix: "/api/users" });
 await app.register(adminRoutes, { prefix: "/api/admin" });
@@ -64,11 +80,18 @@ app.setErrorHandler((error, request, reply) => {
   return reply.code(status).send({ message: status === 500 ? "Error interno del servidor" : knownError.message });
 });
 
-await initializeDatabase();
-await seedAdmin();
-await resumePendingReplications();
-await cleanupExpiredConfigurations();
-startExpirationCleanup();
+try {
+  await initializeDatabase();
+  await seedAdmin();
+  await resumePendingReplications();
+  await cleanupExpiredConfigurations();
+  startExpirationCleanup();
+  databaseStatus = "ready";
+} catch (error) {
+  databaseStatus = "unavailable";
+  databaseError = error instanceof Error ? error.message : String(error);
+  logger.error({ error }, "Database initialization failed; API started in degraded mode");
+}
 
 const port = Number(process.env.PORT ?? 3000);
 await app.listen({ host: "0.0.0.0", port });
