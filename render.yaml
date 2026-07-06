@@ -1,13 +1,16 @@
 services:
   - type: web
-    name: database-nexus
+    name: drop-nexus
     runtime: node
-    plan: starter
+    repo: https://github.com/VictorPlatero/Drop_Nexus.git
+    branch: main
+    rootDir: .
+    plan: free
     region: oregon
     buildCommand: npm run install:all && npm run build
     startCommand: npm start
     healthCheckPath: /api/status
-    autoDeploy: true
+    autoDeployTrigger: commit
     envVars:
       - key: NODE_VERSION
         value: "22.14.0"
