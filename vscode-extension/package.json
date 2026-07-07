@@ -4,11 +4,30 @@
   "description": "Extension de VS Code para trabajar con la skill, plugin y flujo de replicacion de Database Nexus.",
   "version": "0.1.0",
   "publisher": "victorplatero",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/VictorPlatero/Drop_Nexus.git",
+    "directory": "vscode-extension"
+  },
+  "homepage": "https://github.com/VictorPlatero/Drop_Nexus/tree/main/vscode-extension",
+  "bugs": {
+    "url": "https://github.com/VictorPlatero/Drop_Nexus/issues"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
   "categories": [
     "Other"
+  ],
+  "keywords": [
+    "database",
+    "replication",
+    "sql",
+    "sqlite",
+    "mysql",
+    "postgresql",
+    "railway"
   ],
   "activationEvents": [
     "onCommand:databaseNexus.openSkill",
