@@ -155,10 +155,14 @@ export default function ReplicationPanel({ configurations, refreshConfigurations
     if (!addingFor) return;
     const kind = addingFor;
     const { databaseFile, ...configuration } = configurationPayload;
-    if (!databaseFile) throw new Error("Selecciona un archivo de base de datos");
-    const uploaded = await uploadDatabase(configuration.engine, databaseFile);
-    configuration.database = uploaded.database;
-    configuration.options = { ...configuration.options, storageMode: "fileCatalog", originalFileName: uploaded.originalName, uploadedFileSize: uploaded.size, tableCount: uploaded.tableCount };
+    if (databaseFile) {
+      const uploaded = await uploadDatabase(configuration.engine, databaseFile);
+      configuration.database = uploaded.database;
+      configuration.options = { ...configuration.options, storageMode: "fileCatalog", originalFileName: uploaded.originalName, uploadedFileSize: uploaded.size, tableCount: uploaded.tableCount };
+    } else if (configuration.options?.connectionMode !== "remote") {
+      throw new Error("Selecciona un archivo o registra una conexion remota");
+    }
+    configuration.options = { ...configuration.options, databaseLabel: configuration.database };
     const created = await api<{ configuration: DbConfiguration }>("/configurations", { method: "POST", body: JSON.stringify(configuration) });
     await refreshConfigurations();
     await loadSchemas(kind, created.configuration.id);
@@ -243,7 +247,7 @@ export default function ReplicationPanel({ configurations, refreshConfigurations
 
     {modalSql && <ReplicationConfirmModal sql={modalSql} busy={busy} onCancel={() => setModalSql("")} onConfirm={() => start(true)} />}
     {addingFor && <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 px-4 py-8"><div className="mx-auto max-w-3xl">
-      <div className="mb-3 flex justify-between"><h2 className="font-semibold text-white">Agregar base como {addingFor === "source" ? "origen" : "destino"}</h2><button onClick={() => setAddingFor(null)}><X /></button></div>
+      <div className="mb-3 flex justify-between"><h2 className="font-semibold text-white">Agregar conexion como {addingFor === "source" ? "origen" : "destino"}</h2><button onClick={() => setAddingFor(null)}><X /></button></div>
       <ConfigurationForm onSubmit={createConnection} onCancel={() => setAddingFor(null)} />
     </div></div>}
   </div>;
@@ -258,7 +262,7 @@ function HeaderMetric({ label, value }: { label: string; value: number }) {
 
 function ConnectionPicker({ label, value, configurations, onChange, onAdd }: { label: string; value: string; configurations: DbConfiguration[]; onChange(id: string): void; onAdd(): void }) {
   return <div><label>{label}</label><select value={value} onChange={(event) => onChange(event.target.value)}><option value="">Seleccionar...</option>{configurations.map((config) => <option key={config.id} value={config.id}>{config.name} · {config.engine}</option>)}</select>
-    <button className="btn-secondary mt-3 flex w-full items-center justify-center gap-2" onClick={onAdd}><Plus size={15} />Agregar base</button></div>;
+    <button className="btn-secondary mt-3 flex w-full items-center justify-center gap-2" onClick={onAdd}><Plus size={15} />Agregar conexion</button></div>;
 }
 
 function MappingEditor({ tables, schemas, destinationSchemas, mappings, setMappings }: { tables: TableChoice[]; schemas: TableSchema[]; destinationSchemas: TableSchema[]; mappings: Record<string, ColumnMapping[]>; setMappings(value: Record<string, ColumnMapping[]>): void }) {

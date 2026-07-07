@@ -10,7 +10,11 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   async connect(): Promise<void> {
     if (this.pool) return;
+    const connectionString = typeof this.config.options?.connectionString === "string" && this.config.options.connectionString
+      ? this.config.options.connectionString
+      : undefined;
     this.pool = new pg.Pool({
+      connectionString,
       host: this.config.host,
       port: this.config.port ?? 5432,
       database: this.config.database,

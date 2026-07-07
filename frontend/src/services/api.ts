@@ -5,6 +5,7 @@ export interface User {
 
 export interface DbConfiguration {
   id: string; userId: string; name: string; engine: string;
+  host?: string; port?: number; username?: string;
   database?: string; options?: Record<string, unknown>; hasPassword: boolean;
   hasDatabase?: boolean; createdAt: string; updatedAt: string; expiresAt: string;
 }

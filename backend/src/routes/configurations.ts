@@ -22,10 +22,36 @@ import { maxDatabaseFileSizeBytes, maxDatabaseFileSizeMb } from "../utils/upload
 const configSchema = z.object({
   name: z.string().trim().min(2).max(100),
   engine: z.enum(DB_ENGINES),
+  host: z.string().trim().max(255).optional(),
+  port: z.coerce.number().int().min(1).max(65535).optional(),
   database: z.string().trim().min(1).max(1000),
+  username: z.string().trim().max(255).optional(),
+  password: z.string().max(1000).optional(),
   options: z.record(z.string(), z.unknown()).optional()
 });
 const exportFormatSchema = z.enum(["xlsx", "sqlite", "json"]);
+const remoteEngines = new Set(["postgresql", "mysql", "mariadb", "sqlserver", "mongodb"]);
+
+type ConfigBody = z.infer<typeof configSchema>;
+type PartialConfigBody = Partial<ConfigBody>;
+
+function isFileCatalog(input: PartialConfigBody): boolean {
+  return input.options?.storageMode === "fileCatalog";
+}
+
+function hasConnectionString(input: PartialConfigBody): boolean {
+  return typeof input.options?.connectionString === "string" && input.options.connectionString.trim().length > 0;
+}
+
+function validateRemoteConfiguration(input: PartialConfigBody, currentEngine?: string): string | null {
+  const engine = input.engine ?? currentEngine;
+  if (!engine || !remoteEngines.has(engine)) {
+    return "Las conexiones remotas solo estan disponibles para PostgreSQL, MySQL, MariaDB, SQL Server y MongoDB";
+  }
+  if (!input.database) return "Indica el nombre de la base de datos remota";
+  if (!input.host && !hasConnectionString(input)) return "Indica el servidor remoto o una cadena de conexion";
+  return null;
+}
 
 export async function configurationRoutes(app: FastifyInstance): Promise<void> {
   const guards = { preHandler: [authenticate] };
@@ -36,7 +62,7 @@ export async function configurationRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/database-upload/:engine", guards, async (request, reply) => {
     const engineResult = z.enum(DB_ENGINES).safeParse((request.params as { engine: string }).engine);
-    if (!engineResult.success) return reply.code(400).send({ message: "Modelo de base de datos no válido" });
+    if (!engineResult.success) return reply.code(400).send({ message: "Modelo de base de datos no valido" });
     try {
       const file = await request.file({ limits: { files: 1, fileSize: maxDatabaseFileSizeBytes() } });
       if (!file) return reply.code(400).send({ message: "Selecciona un archivo de base de datos" });
@@ -59,12 +85,14 @@ export async function configurationRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/", guards, async (request, reply) => {
     const parsed = configSchema.safeParse(request.body);
-    if (!parsed.success) return reply.code(400).send({ message: "Configuración inválida", issues: parsed.error.flatten() });
-    if (parsed.data.options?.storageMode !== "fileCatalog") {
-      return reply.code(400).send({ message: "Debes subir la base de datos desde tu computadora" });
-    }
-    if (!await validateOwnedCatalogReference(parsed.data.database, request.user.id, parsed.data.engine)) {
-      return reply.code(400).send({ message: "El archivo importado no pertenece al usuario o no corresponde al motor seleccionado" });
+    if (!parsed.success) return reply.code(400).send({ message: "Configuracion invalida", issues: parsed.error.flatten() });
+    if (isFileCatalog(parsed.data)) {
+      if (!await validateOwnedCatalogReference(parsed.data.database, request.user.id, parsed.data.engine)) {
+        return reply.code(400).send({ message: "El archivo importado no pertenece al usuario o no corresponde al motor seleccionado" });
+      }
+    } else {
+      const remoteError = validateRemoteConfiguration(parsed.data);
+      if (remoteError) return reply.code(400).send({ message: remoteError });
     }
     const config = await createConfiguration(request.user.id, parsed.data);
     return reply.code(201).send({ configuration: publicConfig(config) });
@@ -75,19 +103,23 @@ export async function configurationRoutes(app: FastifyInstance): Promise<void> {
     const current = await getConfiguration(id, request.user.id);
     if (!current) return reply.code(404).send({ message: "Base de datos no encontrada" });
     const parsed = configSchema.partial().safeParse(request.body);
-    if (!parsed.success) return reply.code(400).send({ message: "Configuración inválida", issues: parsed.error.flatten() });
+    if (!parsed.success) return reply.code(400).send({ message: "Configuracion invalida", issues: parsed.error.flatten() });
     if (parsed.data.engine && parsed.data.engine !== current.engine && !parsed.data.database) {
-      return reply.code(400).send({ message: "Para cambiar el motor debes subir un nuevo archivo compatible" });
+      return reply.code(400).send({ message: "Para cambiar el motor debes subir un nuevo archivo compatible o indicar una base remota" });
     }
-    if (parsed.data.database && parsed.data.options?.storageMode !== "fileCatalog") {
-      return reply.code(400).send({ message: "Debes subir la base de datos desde tu computadora" });
-    }
-    if (parsed.data.database && !await validateOwnedCatalogReference(parsed.data.database, request.user.id, parsed.data.engine ?? current.engine)) {
-      return reply.code(400).send({ message: "Archivo de base de datos no autorizado o incompatible con el motor seleccionado" });
+    if (parsed.data.database) {
+      if (isFileCatalog(parsed.data)) {
+        if (!await validateOwnedCatalogReference(parsed.data.database, request.user.id, parsed.data.engine ?? current.engine)) {
+          return reply.code(400).send({ message: "Archivo de base de datos no autorizado o incompatible con el motor seleccionado" });
+        }
+      } else {
+        const remoteError = validateRemoteConfiguration(parsed.data, parsed.data.engine ?? current.engine);
+        if (remoteError) return reply.code(400).send({ message: remoteError });
+      }
     }
     const config = await updateConfiguration(id, request.user.id, parsed.data);
     if (!config) return reply.code(404).send({ message: "Base de datos no encontrada" });
-    if (parsed.data.database && parsed.data.database !== current.database) {
+    if (parsed.data.database && parsed.data.database !== current.database && current.options?.storageMode === "fileCatalog") {
       await removeOwnedCatalog(current.database, request.user.id);
     }
     return { configuration: publicConfig(config) };
@@ -99,7 +131,7 @@ export async function configurationRoutes(app: FastifyInstance): Promise<void> {
     if (!current || !await deleteConfiguration(id, request.user.id)) {
       return reply.code(404).send({ message: "Base de datos no encontrada" });
     }
-    await removeOwnedCatalog(current.database, request.user.id);
+    if (current.options?.storageMode === "fileCatalog") await removeOwnedCatalog(current.database, request.user.id);
     return reply.code(204).send();
   });
 
