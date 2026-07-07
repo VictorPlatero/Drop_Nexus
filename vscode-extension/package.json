@@ -16,6 +16,8 @@
     "onCommand:databaseNexus.openChatbox",
     "onCommand:databaseNexus.insertPrompt",
     "onCommand:databaseNexus.validateAssistant",
+    "onCommand:databaseNexus.describeDatabaseFile",
+    "onCommand:databaseNexus.generateReplicationScript",
     "onCommand:databaseNexus.openLocalApp"
   ],
   "main": "./extension.js",
@@ -42,12 +44,29 @@
         "title": "Database Nexus: Validar skill, plugin y chatbox"
       },
       {
+        "command": "databaseNexus.describeDatabaseFile",
+        "title": "Database Nexus: Describir archivo de base de datos"
+      },
+      {
+        "command": "databaseNexus.generateReplicationScript",
+        "title": "Database Nexus: Generar script de replicacion"
+      },
+      {
         "command": "databaseNexus.openLocalApp",
         "title": "Database Nexus: Abrir app local"
       }
     ],
     "menus": {
       "explorer/context": [
+        {
+          "command": "databaseNexus.describeDatabaseFile",
+          "when": "resourceExtname == .sql || resourceExtname == .sqlite || resourceExtname == .sqlite3 || resourceExtname == .db || resourceExtname == .json || resourceExtname == .ndjson || resourceExtname == .csv",
+          "group": "navigation@10"
+        },
+        {
+          "command": "databaseNexus.generateReplicationScript",
+          "group": "navigation@15"
+        },
         {
           "command": "databaseNexus.validateAssistant",
           "group": "navigation@20"
@@ -68,6 +87,12 @@
         },
         {
           "command": "databaseNexus.validateAssistant"
+        },
+        {
+          "command": "databaseNexus.describeDatabaseFile"
+        },
+        {
+          "command": "databaseNexus.generateReplicationScript"
         },
         {
           "command": "databaseNexus.openLocalApp"
