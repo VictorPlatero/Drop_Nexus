@@ -4,7 +4,7 @@ import { logger } from "../utils/logger.js";
 
 export async function cleanupExpiredConfigurations(): Promise<number> {
   const expired = (await pool.query(
-    "SELECT id, user_id, database_name FROM db_configurations WHERE expires_at <= now()"
+    "SELECT id, user_id, database_name FROM db_configurations WHERE expires_at IS NOT NULL AND expires_at <= now()"
   )).rows as Array<{ id: string; user_id: string; database_name?: string }>;
 
   for (const config of expired) {

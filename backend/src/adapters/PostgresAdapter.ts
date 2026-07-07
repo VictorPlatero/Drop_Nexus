@@ -20,7 +20,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       database: this.config.database,
       user: this.config.username,
       password: this.config.password,
-      connectionTimeoutMillis: 5000,
+      connectionTimeoutMillis: Number(this.config.options?.connectionTimeoutMs ?? 15000),
       max: 3,
       ssl: this.config.options?.ssl ? { rejectUnauthorized: false } : undefined
     });

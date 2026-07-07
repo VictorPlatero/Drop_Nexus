@@ -113,7 +113,9 @@ export default function ConfigurationForm({
           authMode: current.options?.authMode ?? "password",
           ssl: current.options?.ssl ?? nextMode === "remote",
           encrypt: current.options?.encrypt ?? nextMode === "remote",
-          trustServerCertificate: current.options?.trustServerCertificate ?? true
+          trustServerCertificate: current.options?.trustServerCertificate ?? true,
+          connectionTimeoutMs: current.options?.connectionTimeoutMs ?? (nextMode === "remote" ? 15000 : undefined),
+          requestTimeoutMs: current.options?.requestTimeoutMs ?? (nextMode === "remote" ? 30000 : undefined)
         }
       };
     });
@@ -275,7 +277,7 @@ function RemoteConnectionFields({
         rows={3}
         value={String(form.options?.connectionString ?? "")}
         onChange={(event) => setOption("connectionString", event.target.value)}
-        placeholder={form.engine === "mongodb" ? "mongodb+srv://usuario:clave@cluster/base" : "postgresql://usuario:clave@host:5432/base"}
+        placeholder={form.engine === "mongodb" ? "mongodb+srv://usuario:clave@cluster/base" : form.engine === "mysql" || form.engine === "mariadb" ? "mysql://usuario:clave@host.railway.app:3306/base" : "postgresql://usuario:clave@host.railway.app:5432/base"}
       />
     </div>}
 
@@ -362,7 +364,7 @@ function RemoteConnectionFields({
         <input
           type="number"
           min={1000}
-          value={Number(form.options?.connectionTimeoutMs ?? 5000)}
+          value={Number(form.options?.connectionTimeoutMs ?? 15000)}
           onChange={(event) => setOption("connectionTimeoutMs", Number(event.target.value))}
         />
       </div>
@@ -371,7 +373,7 @@ function RemoteConnectionFields({
         <input
           type="number"
           min={1000}
-          value={Number(form.options?.requestTimeoutMs ?? 15000)}
+          value={Number(form.options?.requestTimeoutMs ?? 30000)}
           onChange={(event) => setOption("requestTimeoutMs", Number(event.target.value))}
         />
       </div>

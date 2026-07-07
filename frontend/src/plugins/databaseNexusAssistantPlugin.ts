@@ -62,7 +62,7 @@ const intents: AssistantIntent[] = [
     answer: (context) => ({
       text: [
         "En Bases de datos puedes importar el archivo, guardar la configuracion y usar Verificar archivo para confirmar que el backend puede leerlo.",
-        "Para replicar necesitas al menos dos configuraciones: una como origen y otra como destino. Recuerda que las bases importadas caducan despues de 24 horas.",
+        "Para replicar necesitas al menos dos configuraciones: una como origen y otra como destino. Recuerda que las bases importadas caducan despues de 24 horas; las conexiones remotas quedan persistentes.",
         statusLine(context)
       ].join("\n\n"),
       suggestions: mergeSuggestions("configurations", ["replication-flow"])
@@ -88,7 +88,7 @@ const intents: AssistantIntent[] = [
   {
     keys: ["seguridad", "credencial", "credenciales", "password", "contrasena", "secreto", "cifrado", "jwt", "expira", "expiracion", "24 horas", "tenant", "usuario"],
     answer: () => ({
-      text: "Database Nexus cifra credenciales externas, no las devuelve al cliente, aisla configuraciones por usuario y limpia bases importadas despues de 24 horas. Evita pegar secretos en el chat o en reportes compartidos.",
+      text: "Database Nexus cifra credenciales externas, no las devuelve al cliente, aisla configuraciones por usuario y limpia bases importadas despues de 24 horas. Las conexiones remotas permanecen hasta que el usuario las elimine. Evita pegar secretos en el chat o en reportes compartidos.",
       suggestions: mergeSuggestions("configurations", ["replication-flow"])
     })
   },

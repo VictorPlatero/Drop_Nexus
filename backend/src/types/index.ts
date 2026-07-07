@@ -27,7 +27,7 @@ export interface DbConfiguration {
   options?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
-  expiresAt: string;
+  expiresAt?: string | null;
 }
 
 export interface ColumnSchema {

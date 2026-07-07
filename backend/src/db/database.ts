@@ -141,7 +141,7 @@ export async function initializeDatabase(): Promise<void> {
       options jsonb NOT NULL DEFAULT '{}'::jsonb,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now(),
-      expires_at timestamptz NOT NULL DEFAULT (now() + interval '24 hours')
+      expires_at timestamptz
     );
     CREATE TABLE IF NOT EXISTS replications (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -206,8 +206,11 @@ export async function initializeDatabase(): Promise<void> {
     ALTER TABLE db_configurations ADD COLUMN IF NOT EXISTS options jsonb DEFAULT '{}'::jsonb;
     ALTER TABLE db_configurations ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
     ALTER TABLE db_configurations ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
-    ALTER TABLE db_configurations ADD COLUMN IF NOT EXISTS expires_at timestamptz DEFAULT (now() + interval '24 hours');
-    UPDATE db_configurations SET expires_at = created_at + interval '24 hours' WHERE expires_at IS NULL;
+    ALTER TABLE db_configurations ADD COLUMN IF NOT EXISTS expires_at timestamptz;
+    ALTER TABLE db_configurations ALTER COLUMN expires_at DROP NOT NULL;
+    ALTER TABLE db_configurations ALTER COLUMN expires_at DROP DEFAULT;
+    UPDATE db_configurations SET expires_at = NULL WHERE COALESCE(options->>'storageMode', '') <> 'fileCatalog';
+    UPDATE db_configurations SET expires_at = created_at + interval '24 hours' WHERE options->>'storageMode' = 'fileCatalog' AND expires_at IS NULL;
     CREATE INDEX IF NOT EXISTS idx_db_configurations_expires_at ON db_configurations(expires_at);
     ALTER TABLE replications ADD COLUMN IF NOT EXISTS user_id uuid;
     ALTER TABLE replications ADD COLUMN IF NOT EXISTS source_config_id uuid;

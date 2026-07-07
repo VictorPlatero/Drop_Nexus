@@ -141,7 +141,7 @@ export default function ConfigurationsList({
           </div>
           <div className="mt-4 flex items-center gap-2 rounded-button border border-line bg-[#0D0D0D] px-3 py-2 text-xs text-zinc-500">
             <Clock3 size={14} />
-            Disponible por {remainingTime(config.expiresAt)}
+            {config.expiresAt ? `Disponible por ${remainingTime(config.expiresAt)}` : "Conexion persistente"}
           </div>
           {!isRemote && <div className="mt-4 rounded-button border border-line bg-[#0D0D0D] p-3">
             <div className="mb-2 flex items-center gap-2 text-xs text-zinc-500"><Download size={14} />Descargar base modificada</div>

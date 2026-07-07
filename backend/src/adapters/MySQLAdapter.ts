@@ -9,7 +9,24 @@ export class MySQLAdapter implements DatabaseAdapter {
   constructor(public readonly config: DbConfiguration) {}
   async connect(): Promise<void> {
     if (this.pool) return;
-    this.pool = mysql.createPool({ host: this.config.host, port: this.config.port ?? 3306, database: this.config.database, user: this.config.username, password: this.config.password, connectTimeout: 5000, connectionLimit: 3, ssl: this.config.options?.ssl ? {} : undefined });
+    const connectionString = typeof this.config.options?.connectionString === "string" && this.config.options.connectionString
+      ? this.config.options.connectionString
+      : undefined;
+    const common = {
+      connectTimeout: Number(this.config.options?.connectionTimeoutMs ?? 15000),
+      connectionLimit: 3,
+      ssl: this.config.options?.ssl ? { rejectUnauthorized: false } : undefined
+    };
+    this.pool = connectionString
+      ? mysql.createPool({ uri: connectionString, ...common })
+      : mysql.createPool({
+        host: this.config.host,
+        port: this.config.port ?? 3306,
+        database: this.config.database,
+        user: this.config.username,
+        password: this.config.password,
+        ...common
+      });
     await this.pool.query("SELECT 1");
   }
   async close(): Promise<void> { await this.pool?.end(); this.pool = undefined; }

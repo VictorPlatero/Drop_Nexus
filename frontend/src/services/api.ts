@@ -7,7 +7,7 @@ export interface DbConfiguration {
   id: string; userId: string; name: string; engine: string;
   host?: string; port?: number; username?: string;
   database?: string; options?: Record<string, unknown>; hasPassword: boolean;
-  hasDatabase?: boolean; createdAt: string; updatedAt: string; expiresAt: string;
+  hasDatabase?: boolean; createdAt: string; updatedAt: string; expiresAt?: string | null;
 }
 
 const API_URL = import.meta.env.VITE_API_URL ?? "";

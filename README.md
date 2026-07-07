@@ -1,13 +1,13 @@
 # Database Nexus
 
-Cada usuario dispone de un espacio aislado. Las bases importadas y sus configuraciones se conservan durante 24 horas y luego se eliminan automáticamente.
+Cada usuario dispone de un espacio aislado. Las bases importadas se conservan durante 24 horas y luego se eliminan automáticamente; las conexiones remotas a bases cloud se mantienen persistentes hasta que el usuario las elimine.
 
 SaaS multi-tenant para configurar, supervisar y ejecutar replicaciones por lotes entre PostgreSQL, MySQL, MariaDB, SQL Server, SQLite y MongoDB.
 
 ## Requisitos
 
 - Node.js 20 o superior
-- Acceso de red a Supabase y a las bases externas configuradas
+- Acceso de red a Supabase/Railway y a las bases externas configuradas
 - No requiere disco persistente en Render; los catálogos comprimidos se guardan en PostgreSQL/Supabase
 
 ## Desarrollo local
@@ -74,9 +74,9 @@ npm start
 
 En producción Fastify sirve `frontend/dist` y las APIs bajo `/api`.
 
-## Render
+## Render / Railway
 
-1. Crea un Blueprint desde `render.yaml`.
+1. En Render, crea un Blueprint desde `render.yaml`. En Railway, crea un servicio Node conectado al repositorio.
 2. Define `DATABASE_URL` y `ADMIN_PASSWORD` en los secretos solicitados.
 3. Conserva `JWT_SECRET` y `ENCRYPTION_KEY` generados. Cambiar `ENCRYPTION_KEY` inutiliza contraseñas de conexiones ya cifradas.
 4. Despliega. El health check usa `/api/status`.

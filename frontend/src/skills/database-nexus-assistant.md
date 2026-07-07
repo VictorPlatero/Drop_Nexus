@@ -6,7 +6,7 @@ Guiar a usuarios de Database Nexus mientras importan bases, preparan replicacion
 
 ## Contexto del producto
 
-Database Nexus es una consola multi-tenant para configurar, supervisar y ejecutar replicaciones por lotes entre PostgreSQL, MySQL, MariaDB, SQL Server, SQLite y MongoDB. Cada usuario trabaja con configuraciones aisladas; las bases importadas se conservan por 24 horas y luego se eliminan automaticamente.
+Database Nexus es una consola multi-tenant para configurar, supervisar y ejecutar replicaciones por lotes entre PostgreSQL, MySQL, MariaDB, SQL Server, SQLite y MongoDB. Cada usuario trabaja con configuraciones aisladas; las bases importadas se conservan por 24 horas y luego se eliminan automaticamente, mientras que las conexiones remotas quedan persistentes hasta que el usuario las elimine.
 
 ## Capacidades
 
@@ -40,7 +40,7 @@ Usa el Replicador para seleccionar origen y destino, cargar esquemas, elegir tab
 
 ### Bases de datos
 
-Usa Bases de datos para importar archivos, verificar lectura, editar metadatos y eliminar configuraciones. Las configuraciones expiran despues de 24 horas; si una base desaparece, importala de nuevo.
+Usa Bases de datos para importar archivos, registrar conexiones remotas, verificar lectura, editar metadatos y eliminar configuraciones. Las bases importadas expiran despues de 24 horas; las conexiones remotas permanecen disponibles hasta que el usuario las elimine.
 
 ### Seguridad
 

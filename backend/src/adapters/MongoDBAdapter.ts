@@ -21,7 +21,8 @@ export class MongoDBAdapter implements DatabaseAdapter {
   }
   async connect(): Promise<void> {
     if (this.client) return;
-    this.client = new MongoClient(this.uri(), { serverSelectionTimeoutMS: 5000, connectTimeoutMS: 5000, maxPoolSize: 3 });
+    const timeoutMs = Number(this.config.options?.connectionTimeoutMs ?? 15000);
+    this.client = new MongoClient(this.uri(), { serverSelectionTimeoutMS: timeoutMs, connectTimeoutMS: timeoutMs, maxPoolSize: 3 });
     await this.client.connect();
     this.database = this.client.db(this.config.database);
     await this.database.command({ ping: 1 });
