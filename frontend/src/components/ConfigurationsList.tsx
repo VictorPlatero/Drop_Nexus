@@ -160,11 +160,11 @@ export default function ConfigurationsList({
               <button className="btn-secondary px-2 py-2 text-xs" onClick={() => downloadModified(config, "json")}>JSON</button>
             </div>
           </div>}
-          <div className="mt-6 flex gap-2">
-            <button className="btn-secondary flex-1" disabled={testing === config.id} onClick={() => test(config.id)}>
+          <div className="mt-6 grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto]">
+            <button className="btn-secondary" disabled={testing === config.id} onClick={() => test(config.id)}>
               {testing === config.id ? "Verificando..." : isRemote ? "Verificar conexion" : "Verificar archivo"}
             </button>
-            <button className="btn-secondary" title="Ver contenido" onClick={() => setViewing(config)}><Eye size={16} /></button>
+            <button className="btn-secondary flex items-center justify-center gap-2" onClick={() => setViewing(config)}><Eye size={16} />Ver contenido</button>
             <button className="btn-secondary" title="Editar" onClick={() => { setEditing(config); setFormOpen(true); }}><Edit3 size={16} /></button>
             <button className="btn-danger" title="Eliminar" onClick={() => remove(config)}><Trash2 size={16} /></button>
           </div>
