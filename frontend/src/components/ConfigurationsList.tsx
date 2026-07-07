@@ -1,7 +1,11 @@
-import { useState } from "react";
-import { CheckCircle2, Clock3, Database, Download, Edit3, Plus, Trash2, XCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { CheckCircle2, ChevronLeft, ChevronRight, Clock3, Database, Download, Edit3, Eye, Plus, Table2, Trash2, X, XCircle } from "lucide-react";
 import { api, downloadFile, type DbConfiguration, uploadDatabase } from "../services/api";
 import ConfigurationForm, { type ConfigurationPayload } from "./ConfigurationForm";
+
+interface ColumnSchema { name: string; dataType: string; nullable: boolean; primaryKey: boolean; foreignKey: boolean }
+interface TableSchema { name: string; columns: ColumnSchema[] }
+interface TableDataResponse { rows: Record<string, unknown>[]; hasMore: boolean; offset: number; limit: number }
 
 export default function ConfigurationsList({
   configurations,
@@ -16,6 +20,7 @@ export default function ConfigurationsList({
   const [editing, setEditing] = useState<DbConfiguration | null>(null);
   const [testing, setTesting] = useState<string>();
   const [results, setResults] = useState<Record<string, boolean>>({});
+  const [viewing, setViewing] = useState<DbConfiguration | null>(null);
 
   const save = async (payload: ConfigurationPayload) => {
     try {
@@ -93,6 +98,10 @@ export default function ConfigurationsList({
     />;
   }
 
+  if (viewing) {
+    return <DatabaseContentViewer config={viewing} onClose={() => setViewing(null)} notify={notify} />;
+  }
+
   return <div>
     <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div>
@@ -155,6 +164,7 @@ export default function ConfigurationsList({
             <button className="btn-secondary flex-1" disabled={testing === config.id} onClick={() => test(config.id)}>
               {testing === config.id ? "Verificando..." : isRemote ? "Verificar conexion" : "Verificar archivo"}
             </button>
+            <button className="btn-secondary" title="Ver contenido" onClick={() => setViewing(config)}><Eye size={16} /></button>
             <button className="btn-secondary" title="Editar" onClick={() => { setEditing(config); setFormOpen(true); }}><Edit3 size={16} /></button>
             <button className="btn-danger" title="Eliminar" onClick={() => remove(config)}><Trash2 size={16} /></button>
           </div>
@@ -162,6 +172,149 @@ export default function ConfigurationsList({
       })}
     </div>}
   </div>;
+}
+
+function DatabaseContentViewer({
+  config,
+  onClose,
+  notify
+}: {
+  config: DbConfiguration;
+  onClose(): void;
+  notify(type: "success" | "error", message: string): void;
+}) {
+  const [tables, setTables] = useState<TableSchema[]>([]);
+  const [activeTable, setActiveTable] = useState("");
+  const [rows, setRows] = useState<Record<string, unknown>[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [loadingSchema, setLoadingSchema] = useState(true);
+  const [loadingRows, setLoadingRows] = useState(false);
+  const notifyRef = useRef(notify);
+  const limit = 50;
+
+  useEffect(() => {
+    notifyRef.current = notify;
+  }, [notify]);
+
+  useEffect(() => {
+    let alive = true;
+    setLoadingSchema(true);
+    setTables([]);
+    setRows([]);
+    setActiveTable("");
+    setOffset(0);
+    api<{ tables: TableSchema[] }>(`/schema/${config.id}`)
+      .then((result) => {
+        if (!alive) return;
+        setTables(result.tables);
+        setActiveTable(result.tables[0]?.name ?? "");
+      })
+      .catch((error) => notifyRef.current("error", error instanceof Error ? error.message : "No se pudo cargar el contenido"))
+      .finally(() => alive && setLoadingSchema(false));
+    return () => { alive = false; };
+  }, [config.id]);
+
+  useEffect(() => {
+    if (!activeTable) {
+      setRows([]);
+      setHasMore(false);
+      return;
+    }
+    let alive = true;
+    setLoadingRows(true);
+    api<TableDataResponse>(`/schema/${config.id}/data/${encodeURIComponent(activeTable)}?offset=${offset}&limit=${limit}`)
+      .then((result) => {
+        if (!alive) return;
+        setRows(result.rows);
+        setHasMore(result.hasMore);
+      })
+      .catch((error) => notifyRef.current("error", error instanceof Error ? error.message : "No se pudieron cargar las filas"))
+      .finally(() => alive && setLoadingRows(false));
+    return () => { alive = false; };
+  }, [activeTable, config.id, offset]);
+
+  const selected = tables.find((table) => table.name === activeTable);
+  const columns = selected?.columns.length
+    ? selected.columns.map((column) => column.name)
+    : [...new Set(rows.flatMap((row) => Object.keys(row)))];
+
+  const selectTable = (table: string) => {
+    setActiveTable(table);
+    setOffset(0);
+  };
+
+  return <div>
+    <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <button className="btn-secondary mb-4 inline-flex items-center gap-2" onClick={onClose}><ChevronLeft size={16} />Volver</button>
+        <h1 className="text-2xl font-semibold text-white">{config.name}</h1>
+        <p className="mt-1 text-sm text-zinc-500">{config.engine} - vista de tablas, columnas y primeras filas</p>
+      </div>
+      <button className="btn-secondary flex items-center gap-2" onClick={onClose}><X size={16} />Cerrar</button>
+    </div>
+
+    <div className="grid gap-5 lg:grid-cols-[280px_1fr]">
+      <aside className="card self-start">
+        <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white"><Table2 size={16} />Tablas</div>
+        {loadingSchema ? <p className="text-sm text-zinc-500">Cargando esquema...</p> : tables.length ? <div className="max-h-[560px] space-y-2 overflow-y-auto">
+          {tables.map((table) => <button
+            key={table.name}
+            className={activeTable === table.name ? "btn-primary w-full text-left" : "btn-secondary w-full text-left"}
+            onClick={() => selectTable(table.name)}
+          >
+            <span className="block truncate">{table.name}</span>
+            <span className="mt-1 block text-xs opacity-70">{table.columns.length} columnas</span>
+          </button>)}
+        </div> : <p className="text-sm text-zinc-500">No se encontraron tablas.</p>}
+      </aside>
+
+      <section className="card min-w-0">
+        {selected ? <>
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-semibold text-white">{selected.name}</h2>
+              <p className="mt-1 text-xs text-zinc-500">Mostrando {rows.length} filas desde {offset.toLocaleString()}</p>
+            </div>
+            <div className="flex gap-2">
+              <button className="btn-secondary flex items-center gap-2" disabled={offset === 0 || loadingRows} onClick={() => setOffset(Math.max(0, offset - limit))}><ChevronLeft size={15} />Anterior</button>
+              <button className="btn-secondary flex items-center gap-2" disabled={!hasMore || loadingRows} onClick={() => setOffset(offset + limit)}>Siguiente<ChevronRight size={15} /></button>
+            </div>
+          </div>
+
+          <div className="mb-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {selected.columns.map((column) => <div key={column.name} className="rounded-button border border-line bg-[#0D0D0D] p-3">
+              <div className="truncate text-sm text-zinc-200">{column.name}</div>
+              <div className="mt-1 text-xs text-zinc-500">{column.dataType}{column.primaryKey ? " - PK" : ""}{column.foreignKey ? " - FK" : ""}{column.nullable ? " - null" : ""}</div>
+            </div>)}
+          </div>
+
+          <div className="table-shell">
+            <table>
+              <thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
+              <tbody>
+                {loadingRows ? <tr><td colSpan={Math.max(1, columns.length)} className="py-10 text-center text-zinc-500">Cargando filas...</td></tr>
+                  : rows.length ? rows.map((row, index) => <tr key={`${offset}-${index}`}>
+                    {columns.map((column) => <td key={column} className="max-w-64 truncate text-zinc-300" title={formatCell(row[column])}>{formatCell(row[column])}</td>)}
+                  </tr>)
+                    : <tr><td colSpan={Math.max(1, columns.length)} className="py-10 text-center text-zinc-500">Sin filas para mostrar</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </> : <div className="py-16 text-center text-zinc-500">
+          <Database className="mx-auto mb-3 text-blue-400" size={30} />
+          Selecciona una tabla para ver su contenido.
+        </div>}
+      </section>
+    </div>
+  </div>;
+}
+
+function formatCell(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
 }
 
 function remainingTime(expiresAt: string): string {
