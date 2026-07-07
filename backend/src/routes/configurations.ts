@@ -10,7 +10,7 @@ import {
   publicConfig,
   updateConfiguration
 } from "../services/dbConfigService.js";
-import { withAdapter } from "../services/connectionManager.js";
+import { testAdapterConnection, withAdapter } from "../services/connectionManager.js";
 import {
   exportCatalog,
   importDatabaseFile,
@@ -138,7 +138,7 @@ export async function configurationRoutes(app: FastifyInstance): Promise<void> {
   app.post("/:id/test", guards, async (request, reply) => {
     const config = await getConfiguration((request.params as { id: string }).id, request.user.id);
     if (!config) return reply.code(404).send({ message: "Base de datos no encontrada" });
-    return withAdapter(config, (adapter) => adapter.testConnection());
+    return testAdapterConnection(config);
   });
 
   app.get("/:id/export/:format", guards, async (request, reply) => {

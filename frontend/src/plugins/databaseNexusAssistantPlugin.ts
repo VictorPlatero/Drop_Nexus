@@ -36,11 +36,13 @@ const suggestionsBySection: Record<DashboardSection, AssistantSuggestion[]> = {
   ],
   configurations: [
     { id: "import-db", label: "Importar base", prompt: "Como importo una base SQLite o SQL Server?", section: "configurations" },
-    { id: "verify-db", label: "Verificar archivo", prompt: "Como confirmo que una base importada se puede leer?", section: "configurations" }
+    { id: "remote-railway", label: "Conectar Railway", prompt: "Como conecto una base MySQL de Railway por TCP Proxy?", section: "configurations" },
+    { id: "verify-db", label: "Verificar conexion", prompt: "Como confirmo que una base remota se puede leer?", section: "configurations" }
   ]
 };
 
 const globalSuggestions: AssistantSuggestion[] = [
+  { id: "azure-sql", label: "Azure SQL", prompt: "Como conecto una base SQL Server o Azure SQL?", section: "configurations" },
   { id: "replication-error", label: "Fallo replica", prompt: "Que hago si una replicacion falla?", section: "replication" },
   { id: "security", label: "Seguridad", prompt: "Como maneja Database Nexus credenciales y expiracion?" }
 ];
@@ -66,6 +68,28 @@ const intents: AssistantIntent[] = [
         statusLine(context)
       ].join("\n\n"),
       suggestions: mergeSuggestions("configurations", ["replication-flow"])
+    })
+  },
+  {
+    keys: ["railway", "proxy", "tcp", "rlwy", "mysqlhost", "mysqlport", "mysqlpassword", "mysql_url", "hayabusa"],
+    answer: () => ({
+      text: [
+        "Para Railway MySQL usa el bloque Public Networking > TCP Proxy, no el dominio HTTP ni mysql.railway.internal.",
+        "En Bases de datos > Agregar base > Conexion remota elige MySQL. Servidor: dominio proxy, por ejemplo hayabusa.proxy.rlwy.net. Puerto: el numero publico del proxy. Usuario, contrasena y base salen de Variables: MYSQLUSER, MYSQLPASSWORD y MYSQLDATABASE.",
+        "En Railway MySQL empieza con Cifrar en Desactivado; si tu URL o proveedor exige TLS, cambia a Obligatorio. Luego guarda, usa Verificar conexion y finalmente Ver contenido."
+      ].join("\n\n"),
+      suggestions: mergeSuggestions("configurations", ["verify-db", "replication-flow"])
+    })
+  },
+  {
+    keys: ["azure", "sql azure", "azure sql", "sqlserver nube", "sql server nube", "1433"],
+    answer: () => ({
+      text: [
+        "Para Azure SQL o SQL Server remoto elige SQL Server en Conexion remota.",
+        "Usa el servidor publico, puerto 1433, nombre de base, usuario y contrasena. Mantén Cifrar en Obligatorio y Certificado de servidor de confianza activado si el certificado no valida en el entorno.",
+        "Si falla, revisa firewall de Azure, que permita conexiones desde el servicio donde corre Database Nexus, y prueba Verificar conexion antes de replicar."
+      ].join("\n\n"),
+      suggestions: mergeSuggestions("configurations", ["verify-db", "replication-flow"])
     })
   },
   {
@@ -108,7 +132,7 @@ export const databaseNexusAssistantPlugin = {
   getWelcomeMessage(context: AssistantContext): string {
     return [
       `Hola, soy Nexus Assistant. Estoy conectado a la seccion ${sectionNames[context.section]}.`,
-      "Puedo ayudarte a importar bases, preparar flujos origen-destino, mapear columnas, elegir modos de escritura y resolver fallos de replicacion."
+      "Puedo ayudarte a importar bases, conectar Railway/Azure/Supabase, preparar flujos origen-destino, mapear columnas, elegir modos de escritura y resolver fallos de replicacion."
     ].join(" ");
   },
   getSuggestions(context: AssistantContext): AssistantSuggestion[] {
@@ -165,12 +189,12 @@ function normalize(value: string): string {
 
 function statusLine(context: AssistantContext): string {
   const count = context.configurations.length;
-  if (count === 0) return "Ahora no hay bases importadas; empieza en Bases de datos antes de crear el flujo.";
-  if (count === 1) return "Ahora tienes 1 base importada; agrega una segunda configuracion para usarla como destino u origen.";
-  return `Ahora tienes ${count} bases importadas, suficiente para crear un flujo origen-destino.`;
+  if (count === 0) return "Ahora no hay bases registradas; empieza en Bases de datos antes de crear el flujo.";
+  if (count === 1) return "Ahora tienes 1 base registrada; agrega una segunda configuracion para usarla como destino u origen.";
+  return `Ahora tienes ${count} bases registradas, suficiente para crear un flujo origen-destino.`;
 }
 
 function fallbackBySection(section: DashboardSection): string {
   if (section === "replication") return "Aqui conviene preguntar por tablas, mapeos, modos de escritura, lotes, programacion o errores de ejecucion.";
-  return "Aqui puedo ayudarte a importar, verificar, editar o eliminar configuraciones de bases para usarlas como origen o destino.";
+  return "Aqui puedo ayudarte a importar archivos, conectar Railway/Azure/Supabase, verificar, ver contenido, editar o eliminar configuraciones de bases.";
 }

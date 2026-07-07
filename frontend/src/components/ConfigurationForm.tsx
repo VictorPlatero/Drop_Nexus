@@ -46,6 +46,10 @@ const empty: ConfigurationPayload = {
   options: { connectionMode: "file" }
 };
 
+function defaultRemoteEncryption(engine: string): boolean {
+  return !["mysql", "mariadb", "mongodb"].includes(engine);
+}
+
 export default function ConfigurationForm({
   editing,
   onSubmit,
@@ -102,6 +106,7 @@ export default function ConfigurationForm({
       const nextEngine = nextMode === "remote" && !remoteEngines.includes(current.engine as typeof remoteEngines[number])
         ? "postgresql"
         : current.engine;
+      const encrypted = nextMode === "remote" ? defaultRemoteEncryption(nextEngine) : false;
       return {
         ...current,
         engine: nextEngine,
@@ -111,8 +116,8 @@ export default function ConfigurationForm({
           ...(current.options ?? {}),
           connectionMode: nextMode,
           authMode: current.options?.authMode ?? "password",
-          ssl: current.options?.ssl ?? nextMode === "remote",
-          encrypt: current.options?.encrypt ?? nextMode === "remote",
+          ssl: current.options?.ssl ?? encrypted,
+          encrypt: current.options?.encrypt ?? encrypted,
           trustServerCertificate: current.options?.trustServerCertificate ?? true,
           connectionTimeoutMs: current.options?.connectionTimeoutMs ?? (nextMode === "remote" ? 15000 : undefined),
           requestTimeoutMs: current.options?.requestTimeoutMs ?? (nextMode === "remote" ? 30000 : undefined)
@@ -201,7 +206,18 @@ export default function ConfigurationForm({
           value={form.engine}
           onChange={async (event) => {
             const engine = event.target.value;
-            setForm({ ...form, engine, port: isRemote ? defaultPorts[engine] : undefined });
+            setForm({
+              ...form,
+              engine,
+              port: isRemote ? defaultPorts[engine] : undefined,
+              options: {
+                ...(form.options ?? {}),
+                ...(isRemote ? {
+                  ssl: defaultRemoteEncryption(engine),
+                  encrypt: defaultRemoteEncryption(engine)
+                } : {})
+              }
+            });
             setDetection(null);
             if (form.databaseFile) {
               const validation = await validateDatabaseFile(form.databaseFile, engine);
@@ -347,6 +363,13 @@ function RemoteConnectionFields({
           <option value="required">Obligatorio</option>
           <option value="disabled">Desactivado</option>
         </select>
+        <p className="mt-2 text-xs text-zinc-500">
+          {form.engine === "mysql" || form.engine === "mariadb"
+            ? "Railway MySQL por TCP Proxy normalmente usa Desactivado. Activalo solo si tu proveedor exige TLS."
+            : form.engine === "sqlserver"
+              ? "Azure SQL y SQL Server en nube normalmente requieren Obligatorio."
+              : "Supabase/PostgreSQL en nube normalmente requiere Obligatorio."}
+        </p>
       </div>
       <label className="mt-7 flex items-center gap-3 text-sm text-zinc-300">
         <input

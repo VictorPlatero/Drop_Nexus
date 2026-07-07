@@ -4,7 +4,7 @@ import { MySQLAdapter } from "../adapters/MySQLAdapter.js";
 import { PostgresAdapter } from "../adapters/PostgresAdapter.js";
 import { SQLServerAdapter } from "../adapters/SQLServerAdapter.js";
 import { SQLiteAdapter } from "../adapters/SQLiteAdapter.js";
-import type { DbConfiguration } from "../types/index.js";
+import type { ConnectionTest, DbConfiguration } from "../types/index.js";
 import { FileDatabaseAdapter } from "../adapters/FileDatabaseAdapter.js";
 
 export function createAdapter(config: DbConfiguration): DatabaseAdapter {
@@ -30,6 +30,15 @@ export async function withAdapter<T>(config: DbConfiguration, task: (adapter: Da
   try {
     await Promise.race([adapter.connect(), timeout]);
     return await task(adapter);
+  } finally {
+    await adapter.close().catch(() => undefined);
+  }
+}
+
+export async function testAdapterConnection(config: DbConfiguration): Promise<ConnectionTest> {
+  const adapter = createAdapter(config);
+  try {
+    return await adapter.testConnection();
   } finally {
     await adapter.close().catch(() => undefined);
   }

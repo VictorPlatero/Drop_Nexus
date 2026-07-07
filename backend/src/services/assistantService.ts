@@ -84,8 +84,13 @@ function buildInput(
     id: config.id,
     name: config.name,
     engine: config.engine,
+    mode: config.options?.storageMode === "fileCatalog" ? "archivo" : "remota",
+    host: config.host,
+    port: config.port,
     hasDatabase: Boolean(config.database),
     tableCount: Number(config.options?.tableCount ?? 0),
+    ssl: Boolean(config.options?.ssl),
+    encrypt: Boolean(config.options?.encrypt),
     expiresAt: config.expiresAt
   }));
   const replicationSummary = replications.slice(0, 20).map((job) => ({
